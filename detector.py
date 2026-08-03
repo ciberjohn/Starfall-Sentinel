@@ -58,6 +58,8 @@ def build_parser():
     p.add_argument("--log", default=argparse.SUPPRESS, help="CSV log path")
     p.add_argument("--live-out", default=argparse.SUPPRESS,
                    help="append 1 Hz live samples CSV: epoch_ms,db,floor")
+    p.add_argument("--live-max-hours", type=float, default=argparse.SUPPRESS,
+                   help="trim live_out to the last N hours (0 = never trim, keep forever)")
     p.add_argument("--webhook", default=argparse.SUPPRESS, help="Discord webhook URL for alerts")
     p.add_argument("--test-webhook", action="store_true", default=argparse.SUPPRESS,
                    help="send a test message to the configured webhook and exit")
@@ -85,6 +87,7 @@ def load_config(argv):
         "source": "rtl",
         "log": None,
         "live_out": None,
+        "live_max_hours": 12.0,
         "webhook": None,
         "test_webhook": False,
         "webhook_long": False,
@@ -112,7 +115,7 @@ def load_config(argv):
     for k in ("sample_rate", "gain", "ppm"):
         cfg[k] = int(cfg[k])
     for k in ("threshold_db", "min_ms", "max_ms", "noise_history_s",
-              "window_ms", "floor_percentile"):
+              "window_ms", "floor_percentile", "live_max_hours"):
         cfg[k] = float(cfg[k])
     cfg["webhook_long"] = str(cfg["webhook_long"]).lower() in ("1", "true", "yes")
     cfg["calibrate"] = str(cfg["calibrate"]).lower() in ("1", "true", "yes")
@@ -168,6 +171,35 @@ def post_webhook(url, text):
         return False
 
 
+def trim_live_csv(path, max_hours):
+    """Keep only the last max_hours of rows in the live-samples CSV. Called
+    periodically, not per-row - at 1 row/s this file is small (~26 bytes/row,
+    well under a year to reach even 10 MB), so trimming isn't urgent, but an
+    unbounded file is still bad hygiene and this keeps dashboard.py's /api/live
+    (which reads the file's tail) bounded regardless of uptime."""
+    if max_hours <= 0:
+        return  # 0 = keep forever, opt-in only
+    cutoff_ms = int((time.time() - max_hours * 3600) * 1000)
+    try:
+        with open(path, "r", newline="") as f:
+            rows = list(csv.reader(f))
+    except FileNotFoundError:
+        return
+    if len(rows) < 2:
+        return
+    header, body = rows[0], rows[1:]
+    kept = [r for r in body if r and r[0].isdigit() and int(r[0]) >= cutoff_ms]
+    if len(kept) == len(body):
+        return  # nothing to trim yet
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(kept)
+    os.replace(tmp_path, path)
+    return True
+
+
 def utc_now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
@@ -212,17 +244,25 @@ def run(cfg):
     live_f = None
     live_w = None
     next_live = None
+    next_trim = None
+    live_path = None
+    TRIM_INTERVAL_S = 1800  # check every 30 min; the file is small, no rush
     if cfg["live_out"] and not cfg["calibrate"]:
-        path = os.path.abspath(cfg["live_out"])
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        new_file = not os.path.exists(path) or os.path.getsize(path) == 0
-        live_f = open(path, "a", newline="")
+        live_path = os.path.abspath(cfg["live_out"])
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        new_file = not os.path.exists(live_path) or os.path.getsize(live_path) == 0
+        live_f = open(live_path, "a", newline="")
         live_w = csv.writer(live_f)
         if new_file:
             live_w.writerow(["epoch_ms", "db", "floor"])
         live_f.flush()
         next_live = time.time() + 1.0
-        print(f"[graves-detector] live samples to {path}", flush=True)
+        next_trim = time.time() + TRIM_INTERVAL_S
+        print(f"[graves-detector] live samples to {live_path} "
+              f"(keeping last {cfg['live_max_hours']:.0f}h)"
+              if cfg["live_max_hours"] > 0 else
+              f"[graves-detector] live samples to {live_path} (unbounded)",
+              flush=True)
 
     # detection state
     active = False
@@ -293,6 +333,18 @@ def run(cfg):
                                      f"{db:.1f}", f"{floor:.1f}"])
                     live_f.flush()
                     next_live = time.time() + 1.0
+
+                if live_w is not None and time.time() >= next_trim:
+                    # os.replace() inside trim_live_csv swaps the file's
+                    # inode out from under any already-open handle, so the
+                    # existing live_f/live_w would silently start writing
+                    # into a deleted, unreachable file - reopen every time
+                    # a trim actually ran to keep writing to the real path.
+                    if trim_live_csv(live_path, cfg["live_max_hours"]):
+                        live_f.close()
+                        live_f = open(live_path, "a", newline="")
+                        live_w = csv.writer(live_f)
+                    next_trim = time.time() + TRIM_INTERVAL_S
 
                 if cfg["calibrate"]:
                     if idx % max(1, int(cfg["sample_rate"] / W)) == 0:

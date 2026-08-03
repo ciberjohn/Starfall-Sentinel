@@ -349,6 +349,15 @@ systemctl --user enable --now graves-watch graves-dashboard
 
 Check: `systemctl --user status graves-watch graves-dashboard`.
 
+`live.csv` (the 1 Hz signal-level log) is kept bounded — `live_max_hours` in
+`config.ini` (default 12h, 0 = disable) trims it every 30 min, so it never
+grows unbounded even left running for years. Not that it was urgent (~2
+MB/day at 1 row/s), but there's no reason to let it grow forever either. If
+you want your own history/config backed up somewhere (cloud storage, a NAS,
+whatever you use), a simple cron job or systemd timer copying `data/` and
+`config.ini` wherever you like works fine — this project doesn't assume or
+require any particular backup destination.
+
 ### Step 10 — Discord alerts (optional)
 
 Create a webhook in your Discord channel, paste its URL into `config.ini`:

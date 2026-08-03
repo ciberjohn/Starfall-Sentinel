@@ -16,6 +16,8 @@ floor_percentile = 10.0
 window_ms = 50.0
 log = data/pings.csv
 live_out = data/live.csv
+; Live samples are trimmed to the last N hours every 30 min (0 = never trim).
+live_max_hours = 12.0
 name = my-station-1
 
 ; Optional: Discord webhook for ping alerts (create a channel webhook first).
