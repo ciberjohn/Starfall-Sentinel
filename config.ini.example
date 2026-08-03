@@ -43,3 +43,34 @@ region = set your region here
 target_name = GRAVES radar
 target_lat = 47.351
 target_lon = 5.515
+
+[iss]
+; graves-iss.service pauses graves-watch and retunes the dongle to catch
+; the ISS whenever a pass clears this elevation - see satpass.py and
+; iss_scheduler.py. Kept high on purpose: this is the only lever that
+; trades away meteor coverage, so it only fires for passes with a real
+; chance of a usable catch, not every marginal horizon-skimmer.
+min_elevation = 40.0
+; ISS APRS digipeater - the most consistently-active ISS ham frequency, so
+; it's the best single-channel bet for actually catching something. Switch
+; to 145.800M for voice/SSTV if you'd rather gamble on a scheduled ARISS
+; contact or SSTV event lining up with a pass.
+frequency = 145.825M
+gain = 40
+ppm = 0
+; FM's idle-vs-signal margin is a few dB, not GRAVES' 10+ (raw FM
+; demodulation is loud on pure noise, not silent - see iss_recorder.py's
+; docstring). Run `iss_recorder.py --calibrate` during a real pass to retune.
+threshold_db = 4.0
+min_ms = 150.0
+hangover_windows = 3
+preroll_s = 0.5
+clip_max_s = 45.0
+; Scheduler-only: margin around AOS/LOS (start a bit early, keep listening a
+; bit late) and how often to re-poll when no qualifying pass is upcoming.
+pass_preroll_s = 20.0
+pass_postroll_s = 20.0
+recheck_interval_s = 1800.0
+device_cooldown_s = 2.5
+hits_log = data/iss_hits.csv
+clips_dir = data/iss_clips

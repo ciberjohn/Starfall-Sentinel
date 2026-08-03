@@ -1,0 +1,23 @@
+[Unit]
+Description=Starfall Sentinel — ISS pass listener/scheduler
+After=network-online.target sound.target graves-watch.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# --user unit: no User= here (see graves-watch.service for why).
+# WorkingDirectory is required: iss_scheduler.py and iss_recorder.py resolve
+# config.ini's relative data/ paths against the CWD.
+WorkingDirectory=/home/YOUR_USERNAME/graves-detector
+ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/graves-detector/iss_scheduler.py --config /home/YOUR_USERNAME/graves-detector/config.ini
+Restart=on-failure
+RestartSec=15
+
+# This service takes graves-watch.service down for the duration of each
+# qualifying pass and always brings it back up in a finally-block (see
+# iss_scheduler.py's run_one_pass) - if this process itself dies mid-pass,
+# graves-watch may be left stopped until systemd restarts this unit above.
+# RestartSec is short on purpose to bound that gap.
+
+[Install]
+WantedBy=default.target

@@ -302,16 +302,17 @@ before installing them, so you don't need to hand-edit anything.
 Doing it by hand instead? Two things the templates require that a plain `cp`
 won't give you:
 
-1. **Path substitution** — `graves-watch.service`/`graves-dashboard.service`
-   use a literal `/home/YOUR_USERNAME/graves-detector` as a stand-in path.
-   Substitute your real checkout path before copying:
+1. **Path substitution** — `graves-watch.service`/`graves-dashboard.service`/
+   `graves-iss.service` use a literal `/home/YOUR_USERNAME/graves-detector`
+   as a stand-in path. Substitute your real checkout path before copying:
    ```bash
    loginctl enable-linger $USER
    mkdir -p ~/.config/systemd/user
    sed "s#/home/YOUR_USERNAME/graves-detector#$(pwd)#g" graves-watch.service      > ~/.config/systemd/user/graves-watch.service
    sed "s#/home/YOUR_USERNAME/graves-detector#$(pwd)#g" graves-dashboard.service > ~/.config/systemd/user/graves-dashboard.service
+   sed "s#/home/YOUR_USERNAME/graves-detector#$(pwd)#g" graves-iss.service      > ~/.config/systemd/user/graves-iss.service
    systemctl --user daemon-reload
-   systemctl --user enable --now graves-watch graves-dashboard
+   systemctl --user enable --now graves-watch graves-dashboard graves-iss
    ```
 2. **No `User=`/`SupplementaryGroups=`** — these are already absent from the
    templates. If you're adapting them for a *system* unit (`/etc/systemd/system`,
@@ -327,7 +328,26 @@ Check:
 ```bash
 systemctl --user status graves-watch
 systemctl --user status graves-dashboard
+systemctl --user status graves-iss
 ```
+
+### ISS pass listener (`graves-iss`)
+
+A third service, `iss_scheduler.py`, watches for upcoming ISS passes
+(`satpass.py`) and whenever one clears `[iss] min_elevation` in `config.ini`
+(40° by default), it stops `graves-watch`, retunes the same dongle to
+`145.825M` (ISS APRS - the most consistently-active ISS ham frequency) for
+the pass window, and hands it back to `graves-watch` when the pass ends. Any
+above-floor audio captured during that window is saved as a WAV clip and
+shows up in the dashboard's "ISS Audio Log" table.
+
+This is a real tradeoff, not a free feature: every qualifying pass is a few
+minutes with no meteor coverage. `min_elevation` is the knob - raise it for
+fewer, stronger-signal passes (less GRAVES downtime); lower it to catch more
+passes at the cost of more downtime and weaker copy. Tune `[iss] threshold_db`
+against a real pass with `python3 iss_recorder.py --calibrate --frequency 145.825M`
+(same idea as `detector.py --calibrate` above) - FM's idle-vs-signal margin
+is only a few dB, not GRAVES' 10+.
 
 ### Remote access (Tailscale)
 
@@ -349,6 +369,8 @@ reverse proxy, or any other tunnel works just as well.
 |---|---|---|
 | `data/live.csv` | ~3.5 MB/day (1 row/s) | safe to delete/archive anytime; dashboard reads the tail |
 | `data/pings.csv` | small | archive monthly |
+| `data/iss_hits.csv` | small, one row per capture | archive monthly |
+| `data/iss_clips/*.wav` | ~190 KB/s of actual capture (quiet passes add nothing) | no automatic trimming yet - archive/delete old clips by hand if disk matters |
 
 ---
 
@@ -411,6 +433,9 @@ reverse proxy, or any other tunnel works just as well.
 | `WARN: webhook failed` in console | Network/Discord issue — detector keeps running regardless |
 | `graves-watch` exits immediately, `code=exited, status=216/GROUP` | `User=`/`SupplementaryGroups=` added to a `--user` unit — remove them, the session already runs as you |
 | Service shows `active (running)` but dashboard stays `OFFLINE` / no `data/*.csv` in the repo | Missing `WorkingDirectory=` in the unit — check `~/.config/systemd/user/graves-watch.service`; `data/pings.csv` may have landed under `$HOME/data/` instead. Re-run `./deploy.sh` and `systemctl --user restart graves-watch graves-dashboard` (enabling an already-active unit does **not** restart it) |
+| `graves-iss` never seems to trigger | Normal if no pass has cleared `min_elevation` yet — `journalctl --user -u graves-iss` logs the next qualifying AOS it's waiting for; lower `min_elevation` if that's too rare for your liking |
+| ISS Audio Log stays empty after a pass | Not every pass has traffic on 145.825 MHz at that moment — a "no hits" pass is a normal, correctly-working result, not a bug. Confirm the chain works with `iss_recorder.py --calibrate --frequency 145.825M` during a real pass |
+| `graves-watch` stayed stopped after a pass | Should self-heal (`graves-iss` restarts it in a `finally` block, plus a safety check on its own startup) — if it didn't, `systemctl --user start graves-watch` and check `journalctl --user -u graves-iss` for what went wrong |
 
 ---
 
@@ -426,6 +451,8 @@ reverse proxy, or any other tunnel works just as well.
 | `python3 simulate.py --test` | hardware-free end-to-end test |
 | `python3 bearing.py --from "your-lat,your-lon"` | recompute bearing/distance/dipole orientation for any location (`--from` is required) |
 | `python3 satpass.py --from "your-lat,your-lon"` | next ISS pass (rise/max/set, az/el, duration) + listening frequencies for any location |
+| `python3 iss_recorder.py --calibrate --frequency 145.825M` | live FM level monitor for tuning `[iss] threshold_db` — tuning mode |
+| `python3 iss_scheduler.py --config config.ini` | run the ISS pass scheduler standalone (normally the `graves-iss` service) |
 | `python3 tools/feed_realtime.py x.pcm \| python3 detector.py --source stdin` | replay recorded audio at real-time rate |
 
 ## References

@@ -302,12 +302,14 @@ service (Step 9). Designed to double as an OBS Browser Source if you want to
 put the station on a public stream — dark-themed, self-explanatory for
 viewers with no context, a light Star Trek/LCARS visual touch, a synthesized
 ambient hum + a distinct chime on real meteor pings (mute toggle in the
-header), and four live "sensor quadrants": solar weather (Kp index + solar
-wind), the next/active meteor shower, a compass showing the bearing toward
-GRAVES computed from your `[station]` config (rounded for privacy, see Step
-4), and the next ISS pass over your station — rise/max/set time, azimuth,
-elevation, duration, and a small legend for the 2 m ham frequencies to hear
-it on.
+header), four live "sensor quadrants" (solar weather, the next/active meteor
+shower, a compass showing the bearing toward GRAVES computed from your
+`[station]` config — rounded for privacy, see Step 4 — and the next ISS
+pass with rise/max/set time, azimuth, elevation, duration), and — for passes
+that clear a configurable elevation bar — an "ISS Audio Log": the dongle
+briefly retunes off GRAVES to listen on the ISS's own frequencies, and any
+above-floor audio it catches (voice, SSTV, APRS packets) is saved as a WAV
+clip and playable right on the page.
 
 The chart library is bundled, so the core station (detector, chart, alerts)
 needs **no internet** as before. Two quadrants are the exception: solar
@@ -327,10 +329,11 @@ If you edit `dashboard.py`, pick up the change on a running station with
 ```
 
 `deploy.sh` installs rtl-sdr, checks the dongle, creates `config.ini` if
-missing, runs the self-test, then installs `graves-watch` and
-`graves-dashboard` as systemd **user** services (with `WorkingDirectory` set
-to wherever you cloned the repo) and enables linger so they survive reboots
-without a login session. Safe to re-run any time — e.g. after `git pull`.
+missing, runs the self-test, then installs `graves-watch`, `graves-dashboard`,
+and `graves-iss` (the ISS pass listener) as systemd **user** services (with
+`WorkingDirectory` set to wherever you cloned the repo) and enables linger so
+they survive reboots without a login session. Safe to re-run any time — e.g.
+after `git pull`.
 
 Prefer to do it by hand? The equivalent manual steps:
 
@@ -339,8 +342,9 @@ loginctl enable-linger $USER
 mkdir -p ~/.config/systemd/user
 sed "s#/home/YOUR_USERNAME/graves-detector#$(pwd)#g" graves-watch.service      > ~/.config/systemd/user/graves-watch.service
 sed "s#/home/YOUR_USERNAME/graves-detector#$(pwd)#g" graves-dashboard.service > ~/.config/systemd/user/graves-dashboard.service
+sed "s#/home/YOUR_USERNAME/graves-detector#$(pwd)#g" graves-iss.service      > ~/.config/systemd/user/graves-iss.service
 systemctl --user daemon-reload
-systemctl --user enable --now graves-watch graves-dashboard
+systemctl --user enable --now graves-watch graves-dashboard graves-iss
 ```
 
 > The `.service` files are templates using a literal `/home/YOUR_USERNAME/graves-detector`
@@ -350,7 +354,13 @@ systemctl --user enable --now graves-watch graves-dashboard
 > see the comments in `graves-watch.service` for why (`--user` units already
 > run as you).
 
-Check: `systemctl --user status graves-watch graves-dashboard`.
+Check: `systemctl --user status graves-watch graves-dashboard graves-iss`.
+
+`graves-iss` pauses `graves-watch` for the duration of any ISS pass that
+clears `[iss] min_elevation` in `config.ini` (40° by default) — a real
+tradeoff, since that's a few minutes of lost meteor coverage per qualifying
+pass. Raise the threshold for fewer/stronger passes, lower it to catch more
+at the cost of more downtime. See `config.ini.example`'s `[iss]` section.
 
 `live.csv` (the 1 Hz signal-level log) is kept bounded — `live_max_hours` in
 `config.ini` (default 12h, 0 = disable) trims it every 30 min, so it never
@@ -398,6 +408,7 @@ rates rise markedly.
 | Dashboard shows `OFFLINE` | No fresh `live.csv` sample in 30 s → detector not running (or the dongle dropped). Check `systemctl --user status graves-watch` |
 | Empty ping log after hours | Normal outside showers; check GRAVES is actually up and your floor is stable in calibrate |
 | Webhook alerts never arrive | Wrong URL, or Discord rate limits → check detector console for `WARN: webhook failed` |
+| ISS Audio Log stays empty | Either no pass has cleared `[iss] min_elevation` yet (`journalctl --user -u graves-iss`), or it did and nothing happened to be transmitting — a quiet pass is a normal result, not a bug |
 
 ## Operating notes
 
@@ -414,6 +425,7 @@ rates rise markedly.
 - [x] Real-time dashboard with privacy-coarsened bearing display
 - [x] Discord webhook alerting on pings
 - [x] `deploy.sh` one-command install + systemd autostart
+- [x] ISS pass predictor + automated pass listener (`graves-iss`, WAV capture)
 - [ ] Meteor-shower alert cron (Perseids/Geminids rate spikes)
 
 ## Contributing

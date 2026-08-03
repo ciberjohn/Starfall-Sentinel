@@ -11,6 +11,8 @@ Endpoints:
   GET /api/pings     recent events (last 50)
   GET /api/quadrants space weather + meteor shower forecast + station bearing
                      + next ISS pass
+  GET /api/iss-hits  recent ISS audio captures (last 20) + clip URLs
+  GET /iss-clips/*   WAV clips saved by iss_recorder.py
   GET /api/health    JSON status for external monitors
   GET /status        plain-text health line for cron/scripts
 
@@ -322,6 +324,7 @@ h1{font-size:26px;letter-spacing:4px;color:var(--ink);margin:0;font-weight:800;
 #chart{max-width:100%}
 #tooltip{position:absolute;display:none;pointer-events:none;background:#000;border:1px solid var(--border);
   border-radius:5px;padding:6px 9px;font-size:11.5px;color:var(--ink);white-space:nowrap;z-index:5}
+#iss-hits audio{height:28px;max-width:230px;vertical-align:middle}
 .legend-row{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--ink-2)}
 .chip{display:inline-flex;align-items:center;gap:6px}
 .swatch{width:14px;height:3px;border-radius:2px;display:inline-block}
@@ -525,6 +528,18 @@ footer a{color:var(--series-level)}
 </table>
 </div>
 
+<h2>ISS Audio Log</h2>
+<div class="panel">
+<p class="quad-sub" style="margin:0 0 8px">Whenever a pass clears the elevation
+threshold, GRAVES pauses and the dongle retunes to listen for the ISS - any
+above-floor audio during that window (voice, SSTV, APRS packet bursts) is
+saved here.</p>
+<table id="iss-hits">
+ <thead><tr><th>Time (UTC)</th><th>Duration</th><th>Strength</th><th>Freq</th><th>Listen</th></tr></thead>
+ <tbody><tr><td colspan="5" class="empty">no ISS audio captured yet</td></tr></tbody>
+</table>
+</div>
+
 <footer>
   Starfall Sentinel — GRAVES meteor-scatter station · source &amp; setup guide on
   <a href="https://github.com/ciberjohn/Starfall-Sentinel" target="_blank" rel="noopener">GitHub</a>
@@ -535,6 +550,7 @@ const CHART_EL = document.getElementById('chart');
 const TOOLTIP = document.getElementById('tooltip');
 const META = document.getElementById('meta');
 const TBODY = document.querySelector('#events tbody');
+const ISS_TBODY = document.querySelector('#iss-hits tbody');
 const STARDATE = document.getElementById('stardate');
 const SOUND_BTN = document.getElementById('sound-btn');
 let plot = null;
@@ -760,6 +776,26 @@ async function loadEvents() {
   ).join('');
 }
 
+async function loadIssHits() {
+  let d;
+  try {
+    d = await (await fetch('/api/iss-hits')).json();
+  } catch (e) {
+    return; // transient network hiccup - keep showing the last good state
+  }
+  if (!d.hits || d.hits.length === 0) {
+    ISS_TBODY.innerHTML = '<tr><td colspan="5" class="empty">no ISS audio captured yet</td></tr>';
+    return;
+  }
+  ISS_TBODY.innerHTML = d.hits.map(h =>
+    `<tr><td class="num">${fmtUTC(new Date(h.utc).getTime())}</td>` +
+    `<td class="num">${(h.duration_ms / 1000).toFixed(1)} s</td>` +
+    `<td class="num">+${h.peak_db_over_floor} dB</td>` +
+    `<td class="num">${h.frequency}</td>` +
+    `<td><audio controls preload="none" src="${h.clip_url}"></audio></td></tr>`
+  ).join('');
+}
+
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
@@ -839,10 +875,12 @@ setInterval(loadLive, 1000);
 setInterval(loadEvents, 5000);
 setInterval(updateStardate, 1000);
 setInterval(loadQuadrants, 60000);
+setInterval(loadIssHits, 30000);
 loadLive();
 loadEvents();
 updateStardate();
 loadQuadrants();
+loadIssHits();
 </script>
 </body>
 </html>
@@ -917,6 +955,23 @@ def pings_payload(data_dir):
     return {"pings": pings}
 
 
+def iss_hits_payload(data_dir):
+    hits = []
+    path = os.path.join(data_dir, "iss_hits.csv")
+    for ln in reversed(tail_lines(path, 1000)):
+        row = next(csv.reader([ln]))
+        if len(row) >= 9 and row[0].startswith("20"):
+            hits.append({
+                "utc": row[0], "local": row[1], "pass_aos_utc": row[2],
+                "duration_ms": row[3], "peak_db_over_floor": row[4],
+                "peak_level_db": row[5], "floor_db": row[6],
+                "frequency": row[7], "clip_url": f"/iss-clips/{row[8]}",
+            })
+        if len(hits) >= 20:
+            break
+    return {"hits": hits}
+
+
 def health_payload(data_dir):
     live_path = os.path.join(data_dir, "live.csv")
     age = None
@@ -968,6 +1023,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(live_payload(self.server.data_dir))
         elif route == "/api/pings":
             self._send_json(pings_payload(self.server.data_dir))
+        elif route == "/api/iss-hits":
+            self._send_json(iss_hits_payload(self.server.data_dir))
+        elif route.startswith("/iss-clips/"):
+            # basename() strips any path components (traversal-proof); the
+            # prefix/suffix check confines this to files iss_recorder.py
+            # actually writes, not an arbitrary-file-read primitive
+            fname = os.path.basename(route[len("/iss-clips/"):])
+            if fname.startswith("iss_") and fname.endswith(".wav"):
+                self._send_file(os.path.join(self.server.data_dir, "iss_clips", fname), "audio/wav")
+            else:
+                self.send_error(404)
         elif route == "/api/quadrants":
             self._send_json(quadrants_payload())
         elif route == "/api/health":

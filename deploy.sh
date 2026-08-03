@@ -38,7 +38,7 @@ python3 "$REPO_DIR/simulate.py" --test
 
 echo "==> Installing systemd user services"
 mkdir -p "$SYSTEMD_USER_DIR"
-for svc in graves-watch graves-dashboard; do
+for svc in graves-watch graves-dashboard graves-iss; do
     sed -e "s#/home/YOUR_USERNAME/graves-detector#$REPO_DIR#g" \
         "$REPO_DIR/$svc.service" > "$SYSTEMD_USER_DIR/$svc.service"
 done
@@ -47,11 +47,22 @@ echo "==> Enabling linger so services run without an active login session"
 loginctl enable-linger "$USER"
 
 systemctl --user daemon-reload
-systemctl --user enable graves-watch graves-dashboard
-systemctl --user restart graves-watch graves-dashboard
+systemctl --user enable graves-watch graves-dashboard graves-iss
+systemctl --user restart graves-watch graves-dashboard graves-iss
+
+if [ -d "$HOME/Dropbox" ]; then
+    echo "==> Dropbox found — installing daily backup timer"
+    sed -e "s#/home/YOUR_USERNAME/graves-detector#$REPO_DIR#g" \
+        "$REPO_DIR/graves-backup.service" > "$SYSTEMD_USER_DIR/graves-backup.service"
+    cp "$REPO_DIR/graves-backup.timer" "$SYSTEMD_USER_DIR/graves-backup.timer"
+    systemctl --user daemon-reload
+    systemctl --user enable --now graves-backup.timer
+else
+    echo "==> No ~/Dropbox found — skipping backup timer (backup.sh needs a sync target)"
+fi
 
 echo "==> Done. Status:"
-systemctl --user --no-pager status graves-watch graves-dashboard || true
+systemctl --user --no-pager status graves-watch graves-dashboard graves-iss || true
 
 echo
 echo "Dashboard: http://localhost:8090"

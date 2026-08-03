@@ -318,6 +318,7 @@ def next_pass_payload(sat_key, lat_deg, lon_deg, alt_km=0.0, min_elevation_deg=1
         "max_el_deg": p["max_el_deg"],
         "max_az_deg": p["max_az_deg"],
         "max_az_compass": compass_name(p["max_az_deg"]),
+        "los_utc": p["los"].strftime("%Y-%m-%dT%H:%M:%SZ"),
         "los_az_deg": p["los_az_deg"],
         "los_az_compass": compass_name(p["los_az_deg"]),
         "duration_s": p["duration_s"],
