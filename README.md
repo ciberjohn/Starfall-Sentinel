@@ -131,12 +131,34 @@ if you'd rather not drill. This is an enhancement, not a requirement.
 
 ## Hardware shopping list
 
+### The receiver (if you don't already have one)
+
+This whole project runs on an **RTL-SDR** — a ~$25–35 / £20–30 USB dongle
+built around the RTL2832U chip. They were originally sold as cheap USB TV
+tuners (hence sometimes being called a "DTV receptor" in older guides); the
+same chip turns out to be a capable general-purpose SDR, which is the entire
+reason this hobby exists on a budget.
+
+**Recommended: "RTL-SDR Blog V3" or "RTL-SDR Blog V4"** — the de facto
+standard in the RTL-SDR community: SMA connector (no adapter needed), a
+temperature-compensated oscillator (TCXO, keeps the frequency stable so you
+don't have to keep re-tuning), and well documented. Search for exactly that
+name — **`RTL-SDR Blog V3`** or **`RTL-SDR Blog V4`** — on Amazon, eBay, AliExpress,
+or your preferred electronics retailer:
+<https://www.amazon.com/s?k=RTL-SDR+Blog+V3>
+
+Any cheap RTL2832U + R820T2 dongle also works (search **`RTL2832U R820T2 dongle`**)
+— it'll likely have an **MCX** connector instead of SMA (needs a ~$5 MCX→SMA
+adapter, see below) and drift in frequency a bit more without a TCXO, but it's
+the same underlying hardware and this project's `--ppm` correction handles
+the drift fine.
+
 See **`SHOPPING.md`** for an example UK-supplier list with links — adapt the
 search terms to your own country's retailers. Summary:
 
 | Item | Need | Cost |
 |---|---|---|
-| RTL-SDR dongle (your "DTV receptor") | ✔ have it | — |
+| RTL-SDR dongle (USB receiver — see above if you don't have one) | Buy once | $25–35 / £20–30 |
 | Antenna | telescopic dipole kit **or** bare-wire dipole (2 × 52 cm) | £0–20 |
 | Coax | RG174, SMA–SMA, 1–3 m | £8–12 |
 | MCX→SMA adapter | only if your dongle has an MCX socket | £5 |
@@ -150,8 +172,8 @@ search terms to your own country's retailers. Summary:
 | What | Requirement | Notes |
 |---|---|---|
 | Computer | A laptop or Raspberry Pi 4/5 running **Ubuntu/Debian Linux** | The dongle plugs into this. A Pi 4/5 (~£50–70) is ideal for 24/7; an old laptop works identically |
-| SDR | RTL-SDR dongle ("DTV receptor") | Already owned |
-| Antenna | Dipole (above) | Already covered |
+| SDR | RTL-SDR dongle (~$25–35 / £20–30) | See "The receiver" above if you need to buy one |
+| Antenna | Dipole (see hardware shopping list above) | ~$0–20, or free if your dongle kit included telescopic whips |
 | Python | 3.8+ | Ubuntu 22.04+ and Pi OS Bookworm ship 3.10/3.11 — no install needed |
 | Internet | One-time, for `apt` and `git` | Not needed afterwards |
 

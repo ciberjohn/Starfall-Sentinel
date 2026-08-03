@@ -15,7 +15,7 @@ parts in order. Each part ends with a verification step — don't skip them.
 [ Dipole, oriented toward GRAVES per bearing.py ]
         │ RG174 coax (SMA)
         ▼
-   [ RTL-SDR dongle ]  ← your "DTV receptor", USB
+   [ RTL-SDR dongle ]  ← a ~$25-35 USB SDR receiver (see Part 1)
         │
         ▼
  [ detector.py ] ──► data/pings.csv   (every meteor event)
@@ -30,6 +30,21 @@ parts in order. Each part ends with a verification step — don't skip them.
 ---
 
 ## Part 1 — Hardware & physical setup
+
+### Get an RTL-SDR receiver (skip if you already have one)
+
+This runs on any **RTL-SDR** dongle — a ~$25–35 / £20–30 USB stick built
+around the RTL2832U chip, originally sold as a cheap DVB-T TV tuner and
+repurposed by the SDR community as a general-purpose receiver. Search for:
+
+- **`RTL-SDR Blog V3`** or **`RTL-SDR Blog V4`** (recommended — SMA connector,
+  a stable TCXO oscillator, well documented; the community-standard choice):
+  <https://www.amazon.com/s?k=RTL-SDR+Blog+V3>
+- Or any cheap **`RTL2832U R820T2 dongle`** — same underlying chip, usually an
+  MCX connector (needs a ~£5 MCX→SMA adapter) and a bit more frequency drift
+  without a TCXO, handled fine by this project's `--ppm` correction.
+
+Available on Amazon, eBay, AliExpress, or any electronics retailer worldwide.
 
 ### Check your dongle's connector
 

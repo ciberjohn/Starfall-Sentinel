@@ -1,12 +1,21 @@
-# Shopping List — GRAVES Detection Station (UK suppliers)
+# Shopping List — GRAVES Detection Station
 
 Target: GRAVES 143.050 MHz. Run `python3 bearing.py --from "your-lat,your-lon"`
 to get your own true bearing before buying anything direction-sensitive (a
 Yagi). Interior dipole first; Yagi on fence pillar later.
 
-## Already owned
-- **"DTV receptor"** — this IS the SDR (RTL2832U DVB-T dongle). You do not need
-  to buy an SDR. Check its RF connector:
+## Step 0: the receiver itself (skip if you already have an RTL-SDR)
+
+Everything here runs on an **RTL-SDR** — a ~$25–35 / £20–30 USB dongle
+(RTL2832U chip), originally a cheap DVB-T TV tuner, repurposed as a general
+SDR receiver. Recommended: **`RTL-SDR Blog V3`** or **`RTL-SDR Blog V4`**
+(SMA connector, stable TCXO, the community-standard choice) — search that
+exact name on Amazon, eBay, AliExpress, or any electronics retailer:
+<https://www.amazon.com/s?k=RTL-SDR+Blog+V3>. A cheap `RTL2832U R820T2 dongle`
+also works, usually with an MCX connector instead (adapter below).
+
+## Check what you already have
+- Check its RF connector:
   - **SMA** (most common, incl. RTL-SDR Blog V3/V4) → plug cable straight in.
   - **MCX** (cheap bare sticks) → you need an **MCX-to-SMA adapter** (~£5).
 - If your dongle came in a **kit with telescopic dipoles**, the antenna is also
@@ -14,13 +23,18 @@ Yagi). Interior dipole first; Yagi on fence pillar later.
 
 ## To purchase
 
-| # | Item | Spec | UK source (search term) | Est. cost |
+| # | Item | Spec | Search term | Est. cost |
 |---|---|---|---|---|
-| 1 | Telescopic dipole kit *(only if you have a bare dongle)* | 2 whips, each extends to ~52 cm, SMA plug | Amazon UK: `SMA telescopic dipole antenna VHF` · rtl-sdr.com shop | £10–20 |
-| 2 | RG174 coax patch lead (indoor use) | SMA male → SMA male, 1–3 m, 2.8 mm Ø | Amazon UK: `RG174 SMA cable 2m` | £8–12 |
-| 3 | RG174 coax (future fence-pillar Yagi) | SMA male → SMA male, 10 m | Amazon UK: `RG174 SMA 10m` | £15–20 |
-| 4 | MCX→SMA adapter *(only if dongle has MCX)* | female MCX → male SMA | Amazon UK: `MCX to SMA adapter` | £5 |
-| 5 | SMA female→female barrel *(optional)* | joins two male cables | Amazon UK: `SMA female to female adapter` | £4 |
+| 0 | RTL-SDR dongle *(if you don't have one)* | RTL2832U-based, SMA preferred | `RTL-SDR Blog V3` or `RTL-SDR Blog V4` | $25–35 / £20–30 |
+| 1 | Telescopic dipole kit *(only if you have a bare dongle)* | 2 whips, each extends to ~52 cm, SMA plug | `SMA telescopic dipole antenna VHF` | £10–20 |
+| 2 | RG174 coax patch lead (indoor use) | SMA male → SMA male, 1–3 m, 2.8 mm Ø | `RG174 SMA cable 2m` | £8–12 |
+| 3 | RG174 coax (future fence-pillar Yagi) | SMA male → SMA male, 10 m | `RG174 SMA 10m` | £15–20 |
+| 4 | MCX→SMA adapter *(only if dongle has MCX)* | female MCX → male SMA | `MCX to SMA adapter` | £5 |
+| 5 | SMA female→female barrel *(optional)* | joins two male cables | `SMA female to female adapter` | £4 |
+
+Search terms work on Amazon/eBay/AliExpress/rtl-sdr.com or any local
+electronics retailer — prices above are rough USD/GBP estimates, not
+region-specific quotes.
 
 Specialist UK ham shops (all live): **Waters & Stanton** (hamradiostore.co.uk),
 **Radioworld** (radioworld.co.uk), **Moonraker** (moonrakeronline.com). Useful
