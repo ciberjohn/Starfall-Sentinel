@@ -1,0 +1,34 @@
+[Unit]
+Description=Starfall Sentinel — GRAVES meteor-scatter dashboard (real-time strip chart)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# --user unit: no User= here (see graves-watch.service for why).
+WorkingDirectory=/home/YOUR_USERNAME/graves-detector
+ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/graves-detector/dashboard.py --port 8090 --data-dir /home/YOUR_USERNAME/graves-detector/data --config /home/YOUR_USERNAME/graves-detector/config.ini
+Restart=on-failure
+RestartSec=5
+
+# Sandboxing: if you put this dashboard on the public internet (Cloudflare
+# Tunnel, reverse proxy, port-forward - anything), harden it like this.
+# dashboard.py never writes to disk (every open() call is "rb") and never
+# spawns a subprocess, so the whole filesystem can be made read-only with no
+# exceptions needed - a future bug here is contained to "can't touch
+# anything," not just "can't touch files outside its own folder."
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=default.target

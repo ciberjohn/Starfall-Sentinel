@@ -1,0 +1,22 @@
+[Unit]
+Description=GRAVES meteor-scatter ping detector (143.050 MHz)
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# This is a --user unit: it already runs as you, with your existing group
+# memberships (incl. plugdev for USB/SDR access). Do NOT add User= or
+# SupplementaryGroups= here — the user session manager lacks CAP_SETGID and
+# setting either causes the process to exit 216/GROUP ("Failed to determine
+# supplementary groups: Operation not permitted").
+# WorkingDirectory is required: detector.py resolves config.ini's relative
+# log/live_out paths (data/pings.csv, data/live.csv) against the CWD, which
+# otherwise defaults to $HOME and silently writes outside the repo.
+WorkingDirectory=/home/YOUR_USERNAME/graves-detector
+ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/graves-detector/detector.py --config /home/YOUR_USERNAME/graves-detector/config.ini
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
