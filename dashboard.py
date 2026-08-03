@@ -10,6 +10,7 @@ Endpoints:
   GET /api/live      latest power/floor samples (last ~12 min)
   GET /api/pings     recent events (last 50)
   GET /api/quadrants space weather + meteor shower forecast + station bearing
+                     + next ISS pass
   GET /api/health    JSON status for external monitors
   GET /status        plain-text health line for cron/scripts
 
@@ -39,6 +40,9 @@ TAIL_CHUNK = 256 * 1024
 
 sys.path.insert(0, HERE)
 from bearing import bearing_deg, compass_name, distance_km  # noqa: E402 - needs HERE on sys.path first
+import satpass  # noqa: E402 - needs HERE on sys.path first
+
+DATA_DIR = os.path.join(HERE, "data")  # replaced by --data-dir in main()
 
 # Station coordinates come from config.ini's [station] section (gitignored,
 # per-deployment) - never hardcoded here, so this file is identical whether
@@ -217,11 +221,40 @@ def space_weather_payload():
     }
 
 
+ISS_INTERVAL_S = 60  # cheap to recompute (TLE itself is disk-cached for hours);
+                      # this cadence just keeps the AOS countdown feeling live
+
+_iss_lock = threading.Lock()
+_iss_cache = {"payload": {"available": False}}
+
+
+def iss_loop():
+    """Background refresh of the ISS next-pass prediction, same shape as
+    space_weather_loop() - keeps the ~300ms orbital-math call off request
+    threads, and a Celestrak/math hiccup just leaves the last good value in
+    place instead of taking the tile down."""
+    while True:
+        try:
+            payload = satpass.next_pass_payload(
+                "iss", STATION["lat"], STATION["lon"], cache_dir=DATA_DIR)
+            with _iss_lock:
+                _iss_cache["payload"] = payload
+        except Exception as exc:  # never let this daemon thread die silently
+            print(f"[graves-dashboard] ISS pass loop error: {exc}", file=sys.stderr)
+        time.sleep(ISS_INTERVAL_S)
+
+
+def iss_payload():
+    with _iss_lock:
+        return _iss_cache["payload"]
+
+
 def quadrants_payload():
     return {
         "space_weather": space_weather_payload(),
         "meteor_shower": next_shower(),
         "bearing_deg": BEARING_DEG,
+        "iss_pass": iss_payload(),
     }
 
 PAGE = """<!doctype html>
@@ -330,6 +363,15 @@ h1{font-size:26px;letter-spacing:4px;color:var(--ink);margin:0;font-weight:800;
 .shower-burst line:nth-of-type(6){animation-delay:1.5s}
 .shower-burst line:nth-of-type(7){animation-delay:1.8s}
 .shower-burst line:nth-of-type(8){animation-delay:2.1s}
+
+/* ISS pass icon: a dot orbiting a "planet", pure CSS/SVG - same trick as
+   the header radar sweep (rotate a child element on a timer) */
+.sat-orbit{width:64px;height:64px;opacity:.9}
+.sat-orbit .planet{fill:var(--surface);stroke:var(--ink-muted);stroke-width:1.5}
+.sat-orbit .orbit-path{fill:none;stroke:var(--border);stroke-width:1;stroke-dasharray:2 3}
+.sat-orbit .orbit-spin{transform-origin:32px 32px;animation:issOrbit 6s linear infinite}
+.sat-orbit .sat-dot{fill:var(--lcars-amber)}
+@keyframes issOrbit{to{transform:rotate(360deg)}}
 
 /* GRAVES bearing compass */
 .compass{width:88px;height:88px}
@@ -443,6 +485,21 @@ footer a{color:var(--series-level)}
       </svg>
       <div><span class="quad-num" style="font-size:20px">~__BEARING_DEG__°</span><span class="quad-unit">true</span></div>
       <div class="quad-desc">__TARGET_NAME__ · ~__DISTANCE_KM__ km __COMPASS_NAME__</div>
+    </div>
+  </div>
+  <div class="panel quad" id="quad-iss">
+    <div class="quad-label">ISS Next Pass</div>
+    <div class="quad-body">
+      <svg class="sat-orbit" viewBox="0 0 64 64">
+        <circle class="planet" cx="32" cy="32" r="8"/>
+        <circle class="orbit-path" cx="32" cy="32" r="24"/>
+        <g class="orbit-spin">
+          <circle class="sat-dot" cx="56" cy="32" r="2.6"/>
+        </g>
+      </svg>
+      <div class="quad-num" id="iss-countdown" style="font-size:18px">--</div>
+      <div class="quad-desc" id="iss-detail">loading…</div>
+      <div class="quad-sub">listen: 145.800 MHz FM (voice/SSTV) · 145.825 FM (APRS)</div>
     </div>
   </div>
 </div>
@@ -720,6 +777,8 @@ const WIND_SPEED = document.getElementById('wind-speed');
 const QUAD_SOLAR = document.getElementById('quad-solar');
 const SHOWER_NAME = document.getElementById('shower-name');
 const SHOWER_DETAIL = document.getElementById('shower-detail');
+const ISS_COUNTDOWN = document.getElementById('iss-countdown');
+const ISS_DETAIL = document.getElementById('iss-detail');
 
 async function loadQuadrants() {
   let d;
@@ -758,6 +817,21 @@ async function loadQuadrants() {
     const badge = sh.active ? '<span class="quad-badge">ACTIVE NOW</span> ' : '';
     const when = sh.active ? 'peaking now' : `in ${Math.ceil(sh.days_until)} day${Math.ceil(sh.days_until) === 1 ? '' : 's'}`;
     SHOWER_DETAIL.innerHTML = `${badge}radiant ${sh.radiant} · ZHR ~${sh.zhr} · ${when}`;
+  }
+
+  const iss = d.iss_pass;
+  if (iss && iss.available) {
+    const mins = iss.minutes_until;
+    const overhead = mins <= 0;
+    const badge = overhead ? '<span class="quad-badge">OVERHEAD NOW</span> ' : '';
+    ISS_COUNTDOWN.textContent = overhead ? 'OVERHEAD'
+      : mins < 60 ? `in ${Math.round(mins)}m` : `in ${(mins / 60).toFixed(1)}h`;
+    const durMin = Math.floor(iss.duration_s / 60), durSec = iss.duration_s % 60;
+    ISS_DETAIL.innerHTML = `${badge}rise ${iss.aos_az_compass} → set ${iss.los_az_compass} `
+      + `· max el ${Math.round(iss.max_el_deg)}° · ${durMin}m${String(durSec).padStart(2, '0')}s`;
+  } else if (iss) {
+    ISS_COUNTDOWN.textContent = '--';
+    ISS_DETAIL.textContent = iss.no_pass_in_window ? 'no pass in the next 72h' : 'no data (offline?)';
   }
 }
 
@@ -920,7 +994,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global RENDERED_PAGE
+    global RENDERED_PAGE, DATA_DIR
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="0.0.0.0")
@@ -932,9 +1006,11 @@ def main():
 
     apply_station_config(load_station_config(args.config))
     RENDERED_PAGE = render_page()
+    DATA_DIR = args.data_dir
 
     os.makedirs(args.data_dir, exist_ok=True)
     threading.Thread(target=space_weather_loop, daemon=True).start()
+    threading.Thread(target=iss_loop, daemon=True).start()
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     srv.data_dir = args.data_dir
     print(f"[graves-dashboard] serving on http://{args.host}:{args.port} "

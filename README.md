@@ -302,17 +302,20 @@ service (Step 9). Designed to double as an OBS Browser Source if you want to
 put the station on a public stream — dark-themed, self-explanatory for
 viewers with no context, a light Star Trek/LCARS visual touch, a synthesized
 ambient hum + a distinct chime on real meteor pings (mute toggle in the
-header), and three live "sensor quadrants": solar weather (Kp index + solar
-wind — the one feature on this page that needs internet, since it only
-exists on NOAA's servers), the next/active meteor shower, and a compass
-showing the bearing toward GRAVES computed from your `[station]` config
-(rounded for privacy, see Step 4).
+header), and four live "sensor quadrants": solar weather (Kp index + solar
+wind), the next/active meteor shower, a compass showing the bearing toward
+GRAVES computed from your `[station]` config (rounded for privacy, see Step
+4), and the next ISS pass over your station — rise/max/set time, azimuth,
+elevation, duration, and a small legend for the 2 m ham frequencies to hear
+it on.
 
 The chart library is bundled, so the core station (detector, chart, alerts)
-needs **no internet** as before. The one exception is the solar-weather
-quadrant — Kp index and solar wind only exist on NOAA's servers, fetched
-server-side every 5 minutes and cached; if there's no connection, that one
-panel just reads "no data," everything else keeps working offline.
+needs **no internet** as before. Two quadrants are the exception: solar
+weather (Kp index + solar wind, from NOAA, refreshed every 5 minutes) and
+the ISS pass predictor (orbital elements from Celestrak, refreshed every
+few hours and cached to disk, so a network blip just ages the prediction
+instead of breaking it). If there's no connection at all, those two panels
+just read "no data"; everything else keeps working offline.
 
 If you edit `dashboard.py`, pick up the change on a running station with
 `systemctl --user restart graves-dashboard`.

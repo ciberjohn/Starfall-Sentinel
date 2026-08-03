@@ -212,14 +212,16 @@ python3 dashboard.py --port 8090 --data-dir data
 
 Open **http://localhost:8090** — the Starfall Sentinel dashboard: live strip
 chart (blue = level, aqua dashed = noise floor, hover for exact values), a
-plain-language "how to read this" panel for viewers with no background, three
+plain-language "how to read this" panel for viewers with no background, four
 live sensor quadrants (solar weather, meteor shower forecast, GRAVES bearing
-compass), and the recent events table. Dark-themed with a light Star
-Trek/LCARS accent, a synthesized ambient hum + ping chime (mute toggle in the
-header), meant to look good as an OBS Browser Source if you're putting the
-station on a stream. Only the solar-weather quadrant needs internet (NOAA
-data, fetched server-side every 5 min); everything else stays fully
-offline-capable.
+compass, next ISS pass with its listening frequencies), and the recent
+events table. Dark-themed with a light Star Trek/LCARS accent, a
+synthesized ambient hum + ping chime (mute toggle in the header), meant to
+look good as an OBS Browser Source if you're putting the station on a
+stream. Two quadrants need internet: solar weather (NOAA, fetched
+server-side every 5 min) and the ISS pass predictor (orbital elements from
+Celestrak, cached to disk for hours so a brief outage doesn't blank it);
+everything else stays fully offline-capable.
 
 From another device: **http://\<your-tailscale-ip\>:8090** (see Part 4), or
 just the machine's regular LAN IP if you're not using Tailscale. Edited
@@ -423,6 +425,7 @@ reverse proxy, or any other tunnel works just as well.
 | `python3 dashboard.py --port 8090 --data-dir data` | serve the Starfall Sentinel dashboard |
 | `python3 simulate.py --test` | hardware-free end-to-end test |
 | `python3 bearing.py --from "your-lat,your-lon"` | recompute bearing/distance/dipole orientation for any location (`--from` is required) |
+| `python3 satpass.py --from "your-lat,your-lon"` | next ISS pass (rise/max/set, az/el, duration) + listening frequencies for any location |
 | `python3 tools/feed_realtime.py x.pcm \| python3 detector.py --source stdin` | replay recorded audio at real-time rate |
 
 ## References
