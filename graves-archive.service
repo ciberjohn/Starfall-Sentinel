@@ -1,0 +1,8 @@
+[Unit]
+Description=Starfall Sentinel — archive old ping curves into monthly tar.gz
+After=graves-watch.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/YOUR_USERNAME/Starfall-Sentinel
+ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/Starfall-Sentinel/detector.py --archive-only --config /home/YOUR_USERNAME/Starfall-Sentinel/config.ini

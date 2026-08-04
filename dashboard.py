@@ -34,10 +34,12 @@ import argparse
 import configparser
 import csv
 import datetime
+import io
 import json
 import math
 import os
 import sys
+import tarfile
 import threading
 import time
 import urllib.error
@@ -980,13 +982,16 @@ PING_CURVES_PAGE = """<!doctype html>
 <body>
 <h1>PING CURVES</h1>
 <div class="sub">Echo profiles (dB vs time) for recent detections. Sharp rise + short exponential decay = underdense (small/faint); long or irregular with fading = overdense (large/bright). <a href="/">← back to the dashboard</a></div>
+<div class="sub"><label>Month: <select id="month"><option value="">live (6 months)</option></select></label></div>
 <div class="grid" id="grid"><div class="empty">no ping curves yet — they appear after the first detections</div></div>
 <script>
 const W=600,H=120;
+let curMonth='';
 async function load(){
-  const d=await (await fetch('/api/curves')).json();
+  const url='/api/curves'+(curMonth?'?archive='+curMonth:'');
+  const d=await (await fetch(url)).json();
   const g=document.getElementById('grid');
-  if(!d.curves.length){g.innerHTML='<div class="empty">no ping curves yet</div>';return;}
+  if(!d.curves.length){g.innerHTML='<div class="empty">'+(curMonth?'no curves archived for '+curMonth:'no ping curves yet')+'</div>';return;}
   g.innerHTML=d.curves.map(c=>{
     const st=c.stats||{};
     const cls=c.kind||'';
@@ -1002,7 +1007,8 @@ async function draw(c){
   const f=c.file.replace(/[^a-z0-9]/gi,'');
   const svg=document.getElementById('svg-'+f);
   if(!svg) return;
-  const data=await (await fetch('/api/curve?file='+encodeURIComponent(c.file))).json();
+  const url='/api/curve?file='+encodeURIComponent(c.file)+(c.archive?'&archive='+c.archive:'');
+  const data=await (await fetch(url)).json();
   if(!data||!data.db||data.db.length<2) return;
   let lo=Math.min(...data.db,...data.floor), hi=Math.max(...data.db,...data.floor);
   if(hi-lo<4){hi=lo+4;}
@@ -1017,6 +1023,18 @@ async function draw(c){
     '<path d="'+sigPath+'" stroke="#3987e5" stroke-width="1.6" fill="none"/>';
 }
 setInterval(load,60000);load();
+(async function initMonths(){
+  try{
+    const a=await (await fetch('/api/archives')).json();
+    const sel=document.getElementById('month');
+    a.archives.forEach(m=>{
+      const o=document.createElement('option');
+      o.value=m.month; o.textContent=m.month+' ('+m.count+' echoes)';
+      sel.appendChild(o);
+    });
+    sel.onchange=()=>{curMonth=sel.value; load();};
+  }catch(e){}
+})();
 </script>
 </body>
 </html>
@@ -1243,20 +1261,24 @@ def sstv_payload(data_dir, limit=24):
     return {"images": imgs}
 
 
-def curve_stats(path):
-    """Parse a ping curve CSV (t_ms,db,floor) into shape statistics.
+def _parse_curve_rows(f):
+    """Parse curve CSV rows (t_ms,db,floor) from an open file/iterable."""
+    ts, dbs, floors = [], [], []
+    for row in csv.reader(f):
+        if len(row) < 3 or not row[0].lstrip("-").isdigit():
+            continue
+        ts.append(float(row[0]))
+        dbs.append(float(row[1]))
+        floors.append(float(row[2]))
+    return ts, dbs, floors
+
+
+def _curve_stats(ts, dbs, floors):
+    """Shape statistics from parsed curve arrays.
 
     The profile shape is how radio observers estimate meteor size: a sharp
     rise + short exponential decay = small underdense trail; long/irregular
     echoes with 5-10 Hz fading = large overdense trail (IMO theory)."""
-    ts, dbs, floors = [], [], []
-    with open(path) as f:
-        for row in csv.reader(f):
-            if len(row) < 3 or not row[0].lstrip("-").isdigit():
-                continue
-            ts.append(float(row[0]))
-            dbs.append(float(row[1]))
-            floors.append(float(row[2]))
     if len(dbs) < 3:
         return None
     t0 = ts[0]
@@ -1315,11 +1337,58 @@ def curve_stats(path):
     }
 
 
-def curve_payload(data_dir, limit=30):
-    """Recent ping-curve files with stats (for /api/curves + /ping-curves)."""
+def curve_stats(path):
+    """Parse a ping curve CSV (t_ms,db,floor) into shape statistics."""
+    try:
+        ts, dbs, floors = _parse_curve_rows(open(path))
+    except OSError:
+        return None
+    return _curve_stats(ts, dbs, floors)
+
+
+def _tar_member_data(archive_path, member_name):
+    """Parse one curve CSV out of a monthly archive tarball."""
+    with tarfile.open(archive_path, "r:gz") as tf:
+        f = tf.extractfile(member_name)
+        if f is None:
+            return None
+        return _parse_curve_rows(io.StringIO(f.read().decode(errors="replace")))
+
+
+def curve_payload(data_dir, limit=30, archive=None):
+    """Recent ping-curve files with stats (for /api/curves + /ping-curves).
+
+    With archive='YYYY-MM', reads the monthly tarball instead of the live
+    dir (one sequential pass, keeping the newest `limit` members)."""
     items = []
     cdir = os.path.join(data_dir, "ping_curves")
-    if os.path.isdir(cdir):
+    adir = os.path.join(data_dir, "ping_curves_archive")
+    if archive:
+        apath = os.path.join(adir, f"ping_curves_{archive}.tar.gz")
+        if not os.path.isfile(apath):
+            return {"curves": []}
+        try:
+            with tarfile.open(apath, "r:gz") as tf:
+                keep = []
+                for m in tf.getmembers():
+                    if not m.name.endswith(".csv"):
+                        continue
+                    f = tf.extractfile(m)
+                    if f is None:
+                        continue
+                    parsed = _parse_curve_rows(
+                        io.StringIO(f.read().decode(errors="replace")))
+                    keep.append((m.name, parsed))
+                for name, parsed in keep[-limit:]:
+                    ts, dbs, floors = parsed
+                    st = _curve_stats(ts, dbs, floors) if len(dbs) >= 3 else None
+                    items.append({"file": name, "archive": archive,
+                                  "utc": "", "kind": "", "duration_ms": "",
+                                  "peak_db_over_floor": "", "size": 0,
+                                  "stats": st})
+        except tarfile.TarError:
+            return {"curves": []}
+    elif os.path.isdir(cdir):
         for name in sorted(os.listdir(cdir), reverse=True)[:limit]:
             if not name.endswith(".csv"):
                 continue
@@ -1328,12 +1397,14 @@ def curve_payload(data_dir, limit=30):
                 st = curve_stats(p)
             except Exception:
                 st = None
-            items.append({"file": name, "utc": "", "kind": "",
+            items.append({"file": name, "archive": "", "utc": "", "kind": "",
                           "duration_ms": "", "peak_db_over_floor": "",
                           "size": os.path.getsize(p), "stats": st})
+    else:
+        return {"curves": items}
     # match utc/kind from pings.csv so cards can show the event time
     path = os.path.join(data_dir, "pings.csv")
-    for ln in tail_lines(path, 5000):
+    for ln in tail_lines(path, 50000):
         row = next(csv.reader([ln]))
         if len(row) > 9 and row[9]:
             for it in items:
@@ -1345,21 +1416,56 @@ def curve_payload(data_dir, limit=30):
     return {"curves": items}
 
 
-def curve_data_payload(data_dir, fname):
-    """Full curve data for one file (traversal-safe: caller basenames)."""
-    path = os.path.join(data_dir, "ping_curves", fname)
-    if not os.path.isfile(path):
-        return None
-    ts, dbs, floors = [], [], []
-    with open(path) as f:
-        for row in csv.reader(f):
-            if len(row) < 3 or not row[0].lstrip("-").isdigit():
+def curve_data_payload(data_dir, fname, archive=None):
+    """Full curve data for one file. Resolves from the live dir, or - if it
+    has been archived - from the monthly tarball (month auto-derived from
+    the filename unless `archive` is given). Traversal-safe: caller
+    basenames."""
+    cdir = os.path.join(data_dir, "ping_curves")
+    adir = os.path.join(data_dir, "ping_curves_archive")
+    path = os.path.join(cdir, fname)
+    if os.path.isfile(path):
+        ts, dbs, floors = _parse_curve_rows(open(path))
+        resolved_archive = ""
+    else:
+        month = archive or (fname[:4] + "-" + fname[4:6] if len(fname) >= 6 else None)
+        if not month:
+            return None
+        apath = os.path.join(adir, f"ping_curves_{month}.tar.gz")
+        if not os.path.isfile(apath):
+            return None
+        try:
+            parsed = _tar_member_data(apath, fname)
+        except (tarfile.TarError, KeyError):
+            return None
+        if parsed is None:
+            return None
+        ts, dbs, floors = parsed
+        resolved_archive = month
+    return {"file": fname, "archive": resolved_archive,
+            "t_ms": ts, "db": dbs, "floor": floors,
+            "stats": _curve_stats(ts, dbs, floors)}
+
+
+def archive_payload(data_dir):
+    """Monthly archive tarballs (for the /ping-curves month selector)."""
+    months = []
+    adir = os.path.join(data_dir, "ping_curves_archive")
+    if os.path.isdir(adir):
+        for name in sorted(os.listdir(adir), reverse=True):
+            if not name.endswith(".tar.gz"):
                 continue
-            ts.append(float(row[0]))
-            dbs.append(float(row[1]))
-            floors.append(float(row[2]))
-    return {"file": fname, "t_ms": ts, "db": dbs, "floor": floors,
-            "stats": curve_stats(path)}
+            month = name[len("ping_curves_"):-len(".tar.gz")]
+            size = os.path.getsize(os.path.join(adir, name))
+            count = 0
+            try:
+                with tarfile.open(os.path.join(adir, name), "r:gz") as tf:
+                    count = sum(1 for m in tf.getmembers()
+                                if m.name.endswith(".csv"))
+            except tarfile.TarError:
+                pass
+            months.append({"month": month, "size": size, "count": count})
+    return {"archives": months}
 
 
 def iss_hits_payload(data_dir):
@@ -1446,12 +1552,28 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/rate":
             self._send_json(rate_payload(self.server.data_dir))
         elif route == "/api/curves":
-            self._send_json(curve_payload(self.server.data_dir))
+            qs = parse_qs(urlparse(self.path).query)
+            archive = qs.get("archive", [None])[0]
+            if archive is not None and not (
+                    len(archive) == 7 and archive[4] == "-"
+                    and archive[:4].isdigit() and archive[5:].isdigit()):
+                self.send_error(404)
+            else:
+                self._send_json(curve_payload(self.server.data_dir,
+                                              archive=archive))
+        elif route == "/api/archives":
+            self._send_json(archive_payload(self.server.data_dir))
         elif route == "/api/curve":
             qs = parse_qs(urlparse(self.path).query)
             fname = os.path.basename(qs.get("file", [""])[0])
-            if fname.endswith(".csv") and ".." not in fname:
-                payload = curve_data_payload(self.server.data_dir, fname)
+            archive = qs.get("archive", [None])[0]
+            if archive is not None and not (
+                    len(archive) == 7 and archive[4] == "-"
+                    and archive[:4].isdigit() and archive[5:].isdigit()):
+                self.send_error(404)
+            elif fname.endswith(".csv") and ".." not in fname:
+                payload = curve_data_payload(self.server.data_dir, fname,
+                                             archive=archive)
                 if payload:
                     self._send_json(payload)
                 else:

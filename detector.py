@@ -77,6 +77,8 @@ def build_parser():
                    help="archive dir for old curves (default <curve_dir>_archive)")
     p.add_argument("--test-webhook", action="store_true", default=argparse.SUPPRESS,
                    help="send a test message to the configured webhook and exit")
+    p.add_argument("--archive-only", action="store_true", default=argparse.SUPPRESS,
+                   help="run the curve archive sweep once and exit (for a systemd timer)")
     p.add_argument("--webhook-long", action="store_true", default=argparse.SUPPRESS,
                    help="also alert on LONG events")
     p.add_argument("--name", default=argparse.SUPPRESS, help="station name")
@@ -581,6 +583,15 @@ def main():
         print("Test message sent — check your Discord channel." if ok
               else "FAILED to send test message.", flush=True)
         sys.exit(0 if ok else 1)
+    if cfg["archive_only"]:
+        # standalone archive sweep (graves-archive.timer) - independent of
+        # the detector process so housekeeping survives detector downtime
+        n = archive_curves(cfg["curve_dir"], cfg["curve_archive_dir"],
+                           cfg["curve_retention_days"],
+                           cfg["curve_archive_days"])
+        print(f"[graves-detector] archived {n} curve(s) "
+              f"-> {cfg['curve_archive_dir']}", flush=True)
+        sys.exit(0)
     run(cfg)
 
 

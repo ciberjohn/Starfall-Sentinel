@@ -1,0 +1,9 @@
+[Unit]
+Description=Starfall Sentinel — daily ping-curve archive sweep
+
+[Timer]
+OnBootSec=10min
+OnCalendar=*-*-* 03:17:00
+
+[Install]
+WantedBy=timers.target
