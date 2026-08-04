@@ -855,7 +855,8 @@ async function loadEvents() {
         ' · peak +' + (st.peak_over_floor != null ? st.peak_over_floor : '—') + ' dB' +
         (st.decay_s != null ? ' · decay τ=' + st.decay_s + ' s' : '') +
         (st.oscillations ? ' · osc ' + st.oscillations : '') +
-        ' · <b>' + (st.size_class || '—') + '</b></div>';
+        ' · <b>' + (st.size_class || '—') + '</b>' +
+        (st.shape_confidence ? ' · <span style="color:' + (st.meteor_pct >= 60 ? '#7ddb7d' : (st.meteor_pct >= 40 ? '#e8c35a' : '#e87a5a')) + '">' + st.shape_confidence + ' (' + st.meteor_pct + '%)</span>' : '') + '</div>';
       b.textContent = '⤓';
     };
   });
@@ -1031,7 +1032,9 @@ async function load(){
       '<svg id="svg-'+c.file.replace(/[^a-z0-9]/gi,'')+'"></svg>'+
       '<div class="stats">rise '+(st.rise_ms!=null?st.rise_ms+' ms':'—')+' · peak +'+(st.peak_over_floor!=null?st.peak_over_floor:'—')+' dB · half-width '+(st.duration_ms!=null?st.duration_ms:'—')+' ms'+
       (st.decay_s!=null?' · decay τ='+st.decay_s+' s':'')+(st.oscillations?' · osc '+st.oscillations:'')+
-      '<span class="class-tag">'+(st.size_class||'—')+'</span></div></div>';
+      '<span class="class-tag">'+(st.size_class||'—')+'</span>'+
+      '<span class="conf-tag" style="'+(st.meteor_pct>=60?'color:#7ddb7d':(st.meteor_pct>=40?'color:#e8c35a':'color:#e87a5a'))+'">'+(st.shape_confidence||'')+(st.meteor_pct!=null?' ('+st.meteor_pct+'%)':'')+'</span>'+
+      (st.shape_hint?' <span style="opacity:.6">'+st.shape_hint+'</span>':'')+'</div></div>';
   }).join('');
   d.curves.forEach(c=>{ if(c.file) draw(c); });
 }
@@ -1388,10 +1391,80 @@ def _curve_stats(ts, dbs, floors):
         size_class = "underdense (small/faint)"
     else:
         size_class = "overdense (large/bright)" + (" / wind-fading" if osc >= 5 else "")
+    # shape confidence: meteor vs aircraft/other (post-peak behaviour is the
+    # decisive discriminator - a meteor ALWAYS decays after its peak, an
+    # aircraft scatterer can keep RISING as it enters the scattering region)
+    def _linfit_slope(xs, ys):
+        n = len(xs)
+        if n < 2:
+            return 0.0
+        sx, sy = sum(xs), sum(ys)
+        sxx = sum(x * x for x in xs)
+        sxy = sum(x * y for x, y in zip(xs, ys))
+        denom = n * sxx - sx * sx
+        if denom == 0:
+            return 0.0
+        return (n * sxy - sx * sy) / denom
+    pk_i = max(range(len(dbs)), key=lambda i: dbs[i])
+    pp_x = [(ts[i] - t0) / 1000.0 for i in range(pk_i, len(dbs))]
+    pp_y = [dbs[i] for i in range(pk_i, len(dbs))]
+    post_slope = _linfit_slope(pp_x, pp_y)          # dB/s after the peak
+    dur_s = dur_ms / 1000.0
+    osc_rate = osc / dur_s if dur_s > 0 else 0.0
+    score = 0
+    if post_slope < -1.5:
+        score += 2
+    elif post_slope < -0.3:
+        score += 1
+    elif post_slope > 1.5:
+        score -= 3                    # rising after the peak: never a meteor
+    elif post_slope > 0.3:
+        score -= 1
+    if rise_ms < 300:
+        score += 1                    # meteor: near-instant rise
+    elif rise_ms > 800:
+        score -= 1                    # aircraft: slow build-up
+    if osc_rate >= 2.0:
+        score += 1                    # 5-10 Hz fading: overdense meteor
+    elif osc_rate < 0.5:
+        score -= 1                    # smooth: aircraft/other
+    if dur_s <= 5.0:
+        score += 1
+    elif dur_s > 15.0:
+        score -= 2                    # long: aircraft/interference
+    if decay_s is not None:
+        score += 1                    # exponential decay: meteor
+    elif dur_s > 5.0:
+        score -= 1                    # long + no decay: suspicious
+    if score >= 3:
+        conf = "likely meteor"
+        pct = min(99, 50 + score * 12)
+    elif score >= 1:
+        conf = "likely meteor (moderate)"
+        pct = min(97, 50 + score * 10)
+    elif score >= -1:
+        conf = "ambiguous"
+        pct = 50 + score * 8
+    elif score >= -3:
+        conf = "likely aircraft/other"
+        pct = max(3, 50 + score * 10)
+    else:
+        conf = "likely aircraft/other (high)"
+        pct = max(2, 50 + score * 12)
+    if post_slope > 1.0:
+        hint = "rising after peak"
+    elif post_slope < -1.0:
+        hint = "fast decay"
+    elif osc_rate >= 2.0:
+        hint = "5-10Hz fading"
+    else:
+        hint = ""
     return {
         "rise_ms": round(rise_ms, 0), "peak_db": round(peak, 1),
         "peak_over_floor": round(peak_over, 1), "duration_ms": round(dur_ms, 0),
         "decay_s": decay_s, "oscillations": osc, "size_class": size_class,
+        "shape_confidence": conf, "meteor_pct": pct,
+        "post_peak_slope_db_s": round(post_slope, 2), "shape_hint": hint,
     }
 
 
