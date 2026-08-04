@@ -44,9 +44,9 @@ parts in order. Each part ends with a verification step — don't skip them.
    meeting at the feedpoint.
 2. **Position:** a window on the **south wall** of the house. Any room works;
    the wall facing your garden is ideal.
-3. **Orientation:** dipole **horizontal**, elements perpendicular to your
-   GRAVES bearing (compute it with `bearing.py` — Step 2.4). Its broadside
-   then faces the radar. Use a phone compass app to line it up.
+3. **Orientation:** dipole **horizontal**, elements running **NE–SW** (use a
+   phone compass app: the your dipole axis line). Its broadside then faces ~123° SE —
+   straight at GRAVES.
 4. **Height:** as high as practical (curtain rail, bookshelf). A sill at 1 m
    still works.
 5. **Clearance:** 30+ cm from radiators, TVs, metal frames, foil-backed
@@ -104,11 +104,11 @@ rtl_test
 ### Step 2.3 — Get the code
 
 ```bash
-git clone https://github.com/ciberjohn/Starfall-Sentinel.git
+gh repo clone ciberjohn/Starfall-Sentinel
 cd Starfall-Sentinel
 ```
 
-*(If you already have a checkout, skip this step.)*
+*(On this host it's already at `~/graves-detector`.)*
 
 ### Step 2.4 — Configure
 
@@ -116,27 +116,8 @@ cd Starfall-Sentinel
 cp config.ini.example config.ini
 ```
 
-Two things matter here:
-
-1. **Your coordinates** — set `[station] lat` and `lon` to your location
-   (right-click a map to copy lat/lon, or use a GPS app). The dashboard's
-   compass quadrant, the ISS pass predictions, and the IMO report all use
-   them.
-2. **Your Discord webhook** — paste it into `[detector] webhook`
-   (Part 3). The default gain and frequency already target GRAVES.
-
-**Compute your bearing** (how to aim the antenna — do this now):
-
-```bash
-python3 bearing.py --from "51.5,-0.1"      # replace with YOUR lat,lon
-```
-
-It prints your great-circle **azimuth** to GRAVES, your **distance**, and
-the **dipole axis**. To mount the antenna: lay the dipole's two elements
-**horizontal**, running along the printed axis line — its **broadside**
-(perpendicular to the elements) then faces GRAVES. A phone compass app is
-all you need to line it up. (Don't reuse someone else's numbers — the
-bearing is different for every QTH.)
+Defaults target GRAVES correctly. You only edit this for the Discord webhook
+(Part 3) or gain tweaks.
 
 ### Step 2.5 — Test without hardware
 
@@ -188,12 +169,14 @@ live sensor quadrants (solar weather, meteor shower forecast, GRAVES bearing
 compass, next ISS pass with its listening frequencies), and the recent events
 table. Dark-themed with a light Star Trek/LCARS accent, a synthesized ambient
 hum + ping chime (mute toggle in the header), meant to look good as an OBS
-Browser Source if you're putting the station on a stream. Two quadrants need
+Browser Source if you're putting the station on a stream. If you stream it
+24/7, prefer a hardware encoder in OBS (Intel QSV/VAAPI or NVENC) over
+x264 — ~95% less CPU, quiet fans. Two quadrants need
 internet: solar weather (NOAA, fetched server-side every 5 min) and the ISS
 pass predictor (TLE from Celestrak, cached to disk for hours so a brief
 outage doesn't blank it); everything else stays fully offline-capable.
 
-From another device: **http://<host-tailscale-ip>:8090** (or the Pi's Tailscale IP —
+From another device: **http://<tailscale-ip>:8090** (or the Pi's Tailscale IP —
 see Part 4). Edited `dashboard.py`? `systemctl --user restart graves-dashboard`
 picks up the change.
 
@@ -206,11 +189,11 @@ picks up the change.
 ### 3.1 Create a channel webhook
 
 1. In Discord, open the server and channel where alerts should appear
-   (suggestion: create a dedicated **#meteor-station** channel in your
-   server).
+   (suggestion: create a dedicated **#meteor-station** channel in the fleet
+   server — or reuse #science).
 2. Click the channel **Settings** (gear icon) → **Integrations** →
    **Webhooks** → **New Webhook**.
-3. Name it after your station (e.g. **"My Meteor Station"**).
+3. Name it **your QTH Meteor Station** (avatar optional).
 4. Click **Copy Webhook URL** — it looks like
    `https://discord.com/api/webhooks/1234567890/ABC...`
 5. You need the **Manage Webhooks** permission on that channel (as a server
@@ -319,21 +302,14 @@ margin is only a few dB, not GRAVES' 10+.
 
 ### Remote access (Tailscale)
 
-First install Tailscale on the station host (or skip it — the LAN IP works
-identically for devices on your home network):
-
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up
-```
-
 | Task | How |
 |---|---|
 | Dashboard | `http://<host-tailscale-ip>:8090` from any device |
 | Admin shell | `ssh <user>@<host-tailscale-ip>` |
 | Health check | `curl http://localhost:8090/status` → `OK | live_age_s 3 | pings_today 12` |
 
-No port forwarding, no public exposure — Tailscale is a private mesh (use
-your host's own Tailscale IP, shown by `tailscale ip`).
+No port forwarding, no public exposure — Tailscale is a private mesh (this
+host: <tailscale-ip>).
 
 ### Files to watch
 
@@ -401,14 +377,18 @@ archived — the IMO address is the live channel).
 - Configure `config.ini [imo]`: `to` (recipient), `observer`, `station_name`.
 - Build-only (no email): `python3 imo_report.py --config config.ini --date 2026-08-04`
 - Send (pulls pings.csv from the station over SSH first):
-  `python3 imo_report.py --config config.ini --pull-ssh --send`
-- Schedule it however you like — e.g. a daily cron job or systemd timer
-  running `imo_report.py --config config.ini --send`.
+  `python3 imo_report.py --config config.ini --pull-from-vostro --send`
+- A daily 08:30 cron (`~/.hermes/scripts/starfall_imo.sh`) exists but is
+  **PAUSED** until the Commission confirms the format it wants. The
+  introduction email was sent 2026-08-04 from the station agent (Spock) on
+  behalf of the owner, requesting replies go to both `[redacted]`
+  and `[redacted]`. Resume the "IMO forward-scatter report (daily)"
+  cron job once the format is agreed.
 
 ## Part 6 — Day-1 checklist (when hardware arrives)
 
 1. [ ] Dongle connector identified (SMA or MCX adapter)
-2. [ ] Dipole built (2 × 52 cm), horizontal, broadside aimed at GRAVES (bearing from `bearing.py`)
+2. [ ] Dipole built (2 × 52 cm), horizontal, NE–SW, on the south window
 3. [ ] `sudo apt install -y rtl-sdr` · `rtl_test` shows the device
 4. [ ] `python3 simulate.py --test` → PASS
 5. [ ] `python3 detector.py --calibrate` → GRAVES audible (tune ppm)
@@ -449,7 +429,7 @@ archived — the IMO address is the live channel).
 | `python3 detector.py --test-webhook --config config.ini` | test Discord alert |
 | `python3 dashboard.py --port 8090 --data-dir data` | serve the Starfall Sentinel dashboard |
 | `python3 simulate.py --test` | hardware-free end-to-end test |
-| `python3 bearing.py --from "51.5,-0.1"` | recompute azimuth/dipole orientation for any QTH |
+| `python3 bearing.py --from "51.5,-0.1"` | recompute azimuth/dipole orientation |
 | `python3 satpass.py --from "51.5,-0.1"` | next ISS pass (rise/max/set, az/el, duration) + listening frequencies |
 | `python3 iss_recorder.py --calibrate --frequency 145.825M` | live FM level monitor for tuning `[iss] threshold_db` — tuning mode |
 | `python3 iss_scheduler.py --config config.ini` | run the ISS pass scheduler standalone (normally the `graves-iss` service) |

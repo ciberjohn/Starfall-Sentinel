@@ -429,7 +429,7 @@ footer a{color:var(--series-level)}
   <div class="headline">
     <h1>STARFALL SENTINEL</h1>
     <!-- __REGION__ comes from config.ini's [station] section. Keep it
-         region-level only (e.g. "Example Region, Country"), never a postcode or
+         region-level only (e.g. "your region, UK"), never a postcode or
          house-level detail: this page runs 24/7 on a public stream, and
          anything more precise permanently doxxes the residence. -->
     <div class="subtitle">GRAVES meteor-scatter watch · __REGION__ · 143.050 MHz forward-scatter</div>
@@ -942,18 +942,23 @@ async function loadRate() {
   RATE_LAST.textContent = `last hour ${d.last_hour} · last 48h ${d.last_48h}`;
 }
 
-setInterval(loadLive, 1000);
-setInterval(loadEvents, 5000);
-setInterval(updateStardate, 1000);
-setInterval(loadQuadrants, 60000);
-setInterval(loadIssHits, 30000);
-setInterval(loadRate, 60000);
-loadLive();
-loadEvents();
-updateStardate();
-loadQuadrants();
-loadIssHits();
-loadRate();
+// Visibility-aware scheduler: skip ticks while the tab is hidden (or the
+// OBS browser source is off-screen) and refresh immediately on visible.
+// Keeps the 24/7 stream alive while slashing CPU on a 1 Hz redraw loop.
+function visLoop(fn, ms) {
+  function tick() { if (!document.hidden) fn(); }
+  tick();
+  setInterval(tick, ms);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) fn();
+  });
+}
+visLoop(loadLive, 2000);
+visLoop(loadEvents, 5000);
+visLoop(updateStardate, 1000);
+visLoop(loadQuadrants, 60000);
+visLoop(loadIssHits, 30000);
+visLoop(loadRate, 60000);
 </script>
 </body>
 </html>
