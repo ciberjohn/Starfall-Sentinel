@@ -126,7 +126,7 @@ def load_config(argv):
         "curve_archive_days": 730.0,
         "curve_archive_dir": None,
         "archive_only": False,
-        "name": "mountain-ash-1",
+        "name": "my-station-1",
         "calibrate": False,
     }
     args = vars(build_parser().parse_args(argv))
@@ -156,7 +156,12 @@ def load_config(argv):
         cfg[k] = float(cfg[k])
     for k in ("hangover_windows", "curve_hz", "curve_retention_days",
               "curve_archive_days"):
-        cfg[k] = int(cfg[k])
+        try:
+            cfg[k] = int(cfg[k])
+        except (TypeError, ValueError):
+            cfg[k] = 10 if k == "hangover_windows" else (100 if k == "curve_hz" else 182)
+        if k == "curve_hz":
+            cfg[k] = max(0, min(1000, cfg[k]))  # 0 = detection rate; cap sanity
     cfg["webhook_long"] = str(cfg["webhook_long"]).lower() in ("1", "true", "yes")
     cfg["calibrate"] = str(cfg["calibrate"]).lower() in ("1", "true", "yes")
     cfg["test_webhook"] = str(cfg["test_webhook"]).lower() in ("1", "true", "yes")
@@ -435,8 +440,9 @@ def run(cfg):
         # it as a small curve CSV (t_ms,db,floor) for the dashboard + Discord
         curve_file = ""
         if cfg["curve_dir"] and curve_buf:
-            pre = int(cfg["curve_pre_s"] * 1000.0 / cfg["window_ms"])
-            post = int(cfg["curve_post_s"] * 1000.0 / cfg["window_ms"])
+            wms = max(1.0, cfg["window_ms"])
+            pre = int(cfg["curve_pre_s"] * 1000.0 / wms)
+            post = int(cfg["curve_post_s"] * 1000.0 / wms)
             lo = max(0, (start_idx - pre) * nsub)
             hi = (last_active_idx + post) * nsub
             rows = [e for e in curve_buf if lo <= e[0] <= hi]

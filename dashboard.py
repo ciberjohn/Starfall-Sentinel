@@ -405,6 +405,13 @@ h1{font-size:26px;letter-spacing:4px;color:var(--ink);margin:0;font-weight:800;
 h2{display:inline-block;background:var(--lcars-amber);color:#1a1200;font-weight:800;
   font-size:11.5px;letter-spacing:1.5px;text-transform:uppercase;
   padding:3px 14px 3px 18px;border-radius:12px 4px 4px 12px;margin:14px 0 6px}
+/* Section header row: LCARS tag on the left, action button flush right */
+.section-head{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px}
+.section-head h2{margin:0}
+.section-head a{font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;
+  color:var(--lcars-amber);border:1px solid var(--lcars-amber);border-radius:4px 10px 10px 4px;
+  padding:3px 12px;text-decoration:none;transition:background .15s,color .15s}
+.section-head a:hover{background:var(--lcars-amber);color:#1a1200}
 .explainer p{margin:0 0 6px;font-size:12.5px;line-height:1.45}
 .explainer p:last-child{margin-bottom:0}
 .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700;letter-spacing:.5px}
@@ -541,7 +548,7 @@ footer a{color:var(--series-level)}
   times an hour.</p>
 </div>
 
-<h2>Recent Events</h2>
+<div class="section-head"><h2>Recent Events</h2><a href="/ping-curves">⤢ Click here for curves</a></div>
 <div class="panel">
 <table id="events">
  <thead><tr><th>Time (UTC)</th><th>Start</th><th>Duration</th><th>Strength</th><th>Kind</th><th>Shape</th></tr></thead>
@@ -1046,7 +1053,7 @@ async function draw(c){
   const svg=document.getElementById('svg-'+f);
   if(!svg) return;
   // Catmull-Rom -> cubic Bezier: curves look like real echo traces instead
-  // of angular 20 Hz staircases. Stats stay on the raw samples.
+  // of angular low-rate staircases. Stats stay on the raw samples.
   function smoothPath(pts){
     if(pts.length<3){return pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');}
     let d='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);

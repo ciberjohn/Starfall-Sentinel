@@ -24,8 +24,9 @@ name = my-station-1
 ; webhook = https://discord.com/api/webhooks/xxxxxxxx/yyyyyyyy
 ; webhook_long = false
 
-; Per-ping waveform capture: the detector keeps a ~20 Hz ring buffer and
-; saves one small curve CSV per event (t_ms,db,floor) to data/ping_curves.
+; Per-ping waveform capture: the detector keeps a ring buffer at the
+; curve rate (curve_hz below, default 100 Hz) and saves one small curve
+; CSV per event (t_ms,db,floor) to data/ping_curves.
 ; Event end: a fading echo ends only when the level stays below
 ; floor+end_margin_db for hangover_windows consecutive windows - so one
 ; overdense echo fluctuating across the threshold is not split into many
@@ -36,8 +37,9 @@ name = my-station-1
 ; curve_post_s = 1.0
 ; end_margin_db = 3.0
 ; hangover_windows = 10
-; Curve capture rate (Hz), decoupled from the detection windows: 100 Hz =
-; 10 ms resolution echo shapes; 0 = same rate as detection (~20 Hz).
+; Curve capture rate (Hz), decoupled from the detection windows (default
+; 100): 100 Hz = 10 ms resolution echo shapes; 0 = same rate as detection
+; (~20 Hz).
 ; curve_hz = 100
 ; Curves stay live for 6 months, then move to monthly .tar.gz archives
 ; (data/ping_curves_archive/) kept for 2 years total - consult old shapes
@@ -54,7 +56,8 @@ name = my-station-1
 
 [email]
 ; Used by imo_report.py (citizen-science submissions). Same Gmail app
-; password as Uhura's comm station - gitignored, never commit.
+; password as the station's email sending account - gitignored, never
+; commit.
 ; smtp_host = smtp.gmail.com
 ; smtp_port = 587
 ; user =
