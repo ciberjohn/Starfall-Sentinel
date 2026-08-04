@@ -429,7 +429,7 @@ footer a{color:var(--series-level)}
   <div class="headline">
     <h1>STARFALL SENTINEL</h1>
     <!-- __REGION__ comes from config.ini's [station] section. Keep it
-         region-level only (e.g. "Example Region, Country"), never a postcode or
+         region-level only (e.g. "South Wales, UK"), never a postcode or
          house-level detail: this page runs 24/7 on a public stream, and
          anything more precise permanently doxxes the residence. -->
     <div class="subtitle">GRAVES meteor-scatter watch · __REGION__ · 143.050 MHz forward-scatter</div>
@@ -819,9 +819,34 @@ async function loadEvents() {
       const t0 = data.t_ms[0], t1 = data.t_ms[data.t_ms.length - 1] || t0 + 1;
       const X = t => 8 + (t - t0) / (t1 - t0) * (W2 - 16);
       const Y = d => 8 + (hi - d) / (hi - lo) * (H2 - 16);
-      let fp = '', sp = '';
-      data.floor.forEach((d, i) => { const x = X(data.t_ms[i]), y = Y(d); fp += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1) + ' '; });
-      data.db.forEach((d, i) => { const x = X(data.t_ms[i]), y = Y(d); sp += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1) + ' '; });
+      // Catmull-Rom -> cubic Bezier so sparklines follow the echo curve
+      const smooth = pts => {
+        if (pts.length < 3) return pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+        let d = 'M' + pts[0][0].toFixed(1) + ' ' + pts[0][1].toFixed(1);
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+          const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+          const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+          d += 'C' + c1x.toFixed(1) + ' ' + c1y.toFixed(1) + ' ' + c2x.toFixed(1) + ' ' + c2y.toFixed(1) + ' ' + p2[0].toFixed(1) + ' ' + p2[1].toFixed(1);
+        }
+        return d;
+      };
+      // display-only moving average (peak-preserving) so the echo envelope
+      // reads smoothly; stats are still computed on the raw samples
+      const smoothData = arr => {
+        if (arr.length < 5) return arr;
+        const out = arr.slice(), win = 2;
+        for (let i = 0; i < arr.length; i++) {
+          let s = 0, c = 0;
+          for (let j = Math.max(0, i - win); j <= Math.min(arr.length - 1, i + win); j++) { s += arr[j]; c++; }
+          out[i] = s / c;
+        }
+        const pk = Math.max(...arr), idx = arr.indexOf(pk);
+        out[idx] = Math.max(out[idx], pk);
+        return out;
+      };
+      const fp = smooth(data.floor.map((d, i) => [X(data.t_ms[i]), Y(d)]));
+      const sp = smooth(smoothData(data.db).map((d, i) => [X(data.t_ms[i]), Y(d)]));
       cell.innerHTML = '<svg width="100%" viewBox="0 0 ' + W2 + ' ' + H2 + '" style="background:#0e0e0e;border-radius:4px">' +
         '<rect width="' + W2 + '" height="' + H2 + '" fill="#0e0e0e"/>' +
         '<path d="' + fp + '" stroke="#999" stroke-width="1" fill="none" stroke-dasharray="4 4" opacity="0.7"/>' +
@@ -1014,6 +1039,33 @@ async function draw(c){
   const f=c.file.replace(/[^a-z0-9]/gi,'');
   const svg=document.getElementById('svg-'+f);
   if(!svg) return;
+  // Catmull-Rom -> cubic Bezier: curves look like real echo traces instead
+  // of angular 20 Hz staircases. Stats stay on the raw samples.
+  function smoothPath(pts){
+    if(pts.length<3){return pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');}
+    let d='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
+    for(let i=0;i<pts.length-1;i++){
+      const p0=pts[i-1]||pts[i],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||p2;
+      const c1x=p1[0]+(p2[0]-p0[0])/6,c1y=p1[1]+(p2[1]-p0[1])/6;
+      const c2x=p2[0]-(p3[0]-p1[0])/6,c2y=p2[1]-(p3[1]-p1[1])/6;
+      d+='C'+c1x.toFixed(1)+' '+c1y.toFixed(1)+' '+c2x.toFixed(1)+' '+c2y.toFixed(1)+' '+p2[0].toFixed(1)+' '+p2[1].toFixed(1);
+    }
+    return d;
+  }
+  // display-only moving average (peak-preserving) so the echo envelope
+  // reads smoothly; stats are still computed on the raw samples
+  function smoothData(arr){
+    if(arr.length<5) return arr;
+    const out=arr.slice(), win=2;
+    for(let i=0;i<arr.length;i++){
+      let s=0,c=0;
+      for(let j=Math.max(0,i-win);j<=Math.min(arr.length-1,i+win);j++){s+=arr[j];c++;}
+      out[i]=s/c;
+    }
+    const pk=Math.max(...arr), idx=arr.indexOf(pk);
+    out[idx]=Math.max(out[idx],pk);
+    return out;
+  }
   const url='/api/curve?file='+encodeURIComponent(c.file)+(c.archive?'&archive='+c.archive:'');
   const data=await (await fetch(url)).json();
   if(!data||!data.db||data.db.length<2) return;
@@ -1021,9 +1073,8 @@ async function draw(c){
   if(hi-lo<4){hi=lo+4;}
   const t0=data.t_ms[0], t1=data.t_ms[data.t_ms.length-1]||t0+1;
   const X=t=>8+(t-t0)/(t1-t0)*(W-16), Y=d=>8+(hi-d)/(hi-lo)*(H-16);
-  let floorPath='', sigPath='';
-  data.floor.forEach((d,i)=>{const x=X(data.t_ms[i]),y=Y(d); floorPath+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';});
-  data.db.forEach((d,i)=>{const x=X(data.t_ms[i]),y=Y(d); sigPath+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';});
+  const floorPath=smoothPath(data.floor.map((d,i)=>[X(data.t_ms[i]),Y(d)]));
+  const sigPath=smoothPath(smoothData(data.db).map((d,i)=>[X(data.t_ms[i]),Y(d)]));
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
   svg.innerHTML='<rect width="'+W+'" height="'+H+'" fill="#0e0e0e"/>'+
     '<path d="'+floorPath+'" stroke="#999" stroke-width="1" fill="none" stroke-dasharray="4 4" opacity="0.7"/>'+

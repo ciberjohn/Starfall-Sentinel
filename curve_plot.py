@@ -39,6 +39,48 @@ def parse_curve(path):
     return ts, dbs, floors
 
 
+def smooth_vals(vals, w=5):
+    """Display-only moving average (peak-preserving) so echo envelopes read
+    smoothly. Stats are never computed from this."""
+    if len(vals) < 3:
+        return vals
+    out = vals[:]
+    win = w // 2
+    for i in range(len(vals)):
+        lo, hi = max(0, i - win), min(len(vals) - 1, i + win)
+        out[i] = sum(vals[lo:hi + 1]) / (hi - lo + 1)
+    pk = max(vals)
+    out[vals.index(pk)] = max(out[vals.index(pk)], pk)
+    return out
+
+
+def spline_samples(xs, ys, steps=8):
+    """Catmull-Rom spline, densely sampled (for smooth curve rendering)."""
+    out = []
+    n = len(xs)
+    if n < 2:
+        return list(zip(xs, ys))
+    if n < 4:
+        return list(zip(xs, ys))
+    for i in range(n - 1):
+        x0, y0 = xs[max(i - 1, 0)], ys[max(i - 1, 0)]
+        x1, y1 = xs[i], ys[i]
+        x2, y2 = xs[i + 1], ys[i + 1]
+        x3, y3 = xs[min(i + 2, n - 1)], ys[min(i + 2, n - 1)]
+        for s in range(steps):
+            t = s / steps
+            t2, t3 = t * t, t * t * t
+            x = 0.5 * ((2 * x1) + (-x0 + x2) * t +
+                       (2 * x0 - 5 * x1 + 4 * x2 - x3) * t2 +
+                       (-x0 + 3 * x1 - 3 * x2 + x3) * t3)
+            y = 0.5 * ((2 * y1) + (-y0 + y2) * t +
+                       (2 * y0 - 5 * y1 + 4 * y2 - y3) * t2 +
+                       (-y0 + 3 * y1 - 3 * y2 + y3) * t3)
+            out.append((x, y))
+    out.append((xs[-1], ys[-1]))
+    return out
+
+
 def plot_curve(csv_path, title="", out_path=None, width=640, height=240):
     ts, dbs, floors = parse_curve(csv_path)
     if len(dbs) < 2:
@@ -96,9 +138,9 @@ def plot_curve(csv_path, title="", out_path=None, width=640, height=240):
         px(MARGIN, y, FRAME)
         px(MARGIN + iw - 1, y, FRAME)
 
-    # noise floor - dashed
+    # noise floor - dashed (smoothed)
     prev = None
-    for (t, d) in zip(ts, floors):
+    for (t, d) in spline_samples(ts, floors):
         x, y = tx(t), ty(d)
         if prev is not None:
             x0, y0, x1, y1 = prev[0], prev[1], x, y
@@ -110,9 +152,10 @@ def plot_curve(csv_path, title="", out_path=None, width=640, height=240):
                     px(int(xx), int(yy), FLOOR)
         prev = (x, y)
 
-    # signal polyline
+    # signal polyline (Catmull-Rom smoothed so echoes look curved)
+    dbs_disp = smooth_vals(dbs)
     prev = None
-    for (t, d) in zip(ts, dbs):
+    for (t, d) in spline_samples(ts, dbs_disp):
         x, y = tx(t), ty(d)
         if prev is not None:
             x0, y0, x1, y1 = prev[0], prev[1], x, y
