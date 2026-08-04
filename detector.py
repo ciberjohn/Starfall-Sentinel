@@ -61,6 +61,12 @@ def build_parser():
     p.add_argument("--live-max-hours", type=float, default=argparse.SUPPRESS,
                    help="trim live_out to the last N hours (0 = never trim, keep forever)")
     p.add_argument("--webhook", default=argparse.SUPPRESS, help="Discord webhook URL for alerts")
+    p.add_argument("--curve-dir", default=argparse.SUPPRESS,
+                   help="save per-ping waveform curves to this dir (CSV: t_ms,db,floor)")
+    p.add_argument("--curve-pre-s", type=float, default=argparse.SUPPRESS,
+                   help="pre-roll seconds of curve before the event (default 1.0)")
+    p.add_argument("--curve-post-s", type=float, default=argparse.SUPPRESS,
+                   help="post-roll seconds of curve after the event (default 1.0)")
     p.add_argument("--test-webhook", action="store_true", default=argparse.SUPPRESS,
                    help="send a test message to the configured webhook and exit")
     p.add_argument("--webhook-long", action="store_true", default=argparse.SUPPRESS,
@@ -91,6 +97,9 @@ def load_config(argv):
         "webhook": None,
         "test_webhook": False,
         "webhook_long": False,
+        "curve_dir": None,
+        "curve_pre_s": 1.0,
+        "curve_post_s": 1.0,
         "name": "my-station-1",
         "calibrate": False,
     }
@@ -115,7 +124,8 @@ def load_config(argv):
     for k in ("sample_rate", "gain", "ppm"):
         cfg[k] = int(cfg[k])
     for k in ("threshold_db", "min_ms", "max_ms", "noise_history_s",
-              "window_ms", "floor_percentile", "live_max_hours"):
+              "window_ms", "floor_percentile", "live_max_hours",
+              "curve_pre_s", "curve_post_s"):
         cfg[k] = float(cfg[k])
     cfg["webhook_long"] = str(cfg["webhook_long"]).lower() in ("1", "true", "yes")
     cfg["calibrate"] = str(cfg["calibrate"]).lower() in ("1", "true", "yes")
@@ -124,6 +134,9 @@ def load_config(argv):
     if cfg["log"] is None and cfg["source"] == "rtl" and not cfg["calibrate"]:
         cfg["log"] = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                   "data", "pings.csv")
+    if cfg["curve_dir"] is None and cfg["log"] and not cfg["calibrate"]:
+        cfg["curve_dir"] = os.path.join(
+            os.path.dirname(os.path.abspath(cfg["log"])), "ping_curves")
     return cfg
 
 
@@ -157,14 +170,21 @@ def spawn_rtl_fm(cfg):
         sys.exit(1)
 
 
-def post_webhook(url, text):
+def post_webhook(url, text, image_path=None):
     """Discord webhook POST via curl subprocess (urllib is unreliable here).
+    With image_path, posts a multipart message with the file attached.
     Returns True on success so --test-webhook can report failure."""
     try:
-        payload = json.dumps({"content": text})
-        r = subprocess.run(["curl", "-s", "-m", "10", "-X", "POST", url,
-                            "-H", "Content-Type: application/json", "-d", payload],
-                           capture_output=True)
+        if image_path and os.path.exists(image_path):
+            r = subprocess.run(["curl", "-s", "-m", "15", "-X", "POST", url,
+                                "-F", f"content={text}",
+                                "-F", f"file=@{image_path}"],
+                               capture_output=True)
+        else:
+            payload = json.dumps({"content": text})
+            r = subprocess.run(["curl", "-s", "-m", "10", "-X", "POST", url,
+                                "-H", "Content-Type: application/json", "-d", payload],
+                               capture_output=True)
         return r.returncode == 0
     except Exception as exc:  # alerting must never kill the detector
         print(f"WARN: webhook failed: {exc}", file=sys.stderr)
@@ -224,6 +244,11 @@ def run(cfg):
         stream = sys.stdin.buffer
 
     floor_hist = deque(maxlen=hist_windows)
+    # per-ping waveform capture: ring buffer of (idx, db, floor) at window
+    # rate (~20 Hz); keeps pre/post roll + up to 30 s of the event itself
+    curve_keep = int((cfg["curve_pre_s"] + cfg["curve_post_s"] + 30.0)
+                     * 1000.0 / max(1.0, cfg["window_ms"])) + 10
+    curve_buf = deque(maxlen=max(50, curve_keep))
     buf = []
 
     csv_f = None
@@ -237,7 +262,7 @@ def run(cfg):
         if new_file:
             csv_w.writerow(["utc", "local", "start_ms", "duration_ms",
                             "peak_db_over_floor", "peak_level_db", "floor_db",
-                            "kind", "note"])
+                            "kind", "note", "curve_file"])
         csv_f.flush()
         print(f"[graves-detector] logging events to {path}", flush=True)
 
@@ -285,19 +310,51 @@ def run(cfg):
             return  # sub-threshold blip: ignore entirely
         kind = "PING" if dur_ms <= cfg["max_ms"] else "LONG"
         note = "sporadic-E / interference?" if kind == "LONG" else ""
+
+        # waveform capture: slice the ring buffer around the event and save
+        # it as a small curve CSV (t_ms,db,floor) for the dashboard + Discord
+        curve_file = ""
+        if cfg["curve_dir"] and curve_buf:
+            pre = int(cfg["curve_pre_s"] * 1000.0 / cfg["window_ms"])
+            post = int(cfg["curve_post_s"] * 1000.0 / cfg["window_ms"])
+            lo = max(0, start_idx - pre)
+            hi = last_active_idx + post
+            rows = [e for e in curve_buf if lo <= e[0] <= hi]
+            if len(rows) >= 5:
+                os.makedirs(cfg["curve_dir"], exist_ok=True)
+                stamp = utc_now().replace("-", "").replace(":", "").replace(".", "")
+                curve_file = f"{stamp}_{int(start_idx * cfg['window_ms'])}.csv"
+                with open(os.path.join(cfg["curve_dir"], curve_file),
+                          "w", newline="") as cf:
+                    cw = csv.writer(cf)
+                    cw.writerow(["t_ms", "db", "floor"])
+                    for (i, d, fl) in rows:
+                        cw.writerow([int(i * cfg["window_ms"]),
+                                     f"{d:.2f}", f"{fl:.2f}"])
+
         row = [utc_now(), local_now(), int(start_idx * cfg["window_ms"]),
                f"{dur_ms:.0f}", f"{above:.1f}", f"{peak_level:.1f}",
-               f"{floor_at_peak:.1f}", kind, note]
+               f"{floor_at_peak:.1f}", kind, note, curve_file]
         if csv_w is not None:
             csv_w.writerow(row)
             csv_f.flush()
         print(f"[{kind}] {row[0]} start {row[2]} ms dur {row[3]} ms "
-              f"+{row[4]} dB over floor", flush=True)
+              f"+{row[4]} dB over floor"
+              + (f" curve {curve_file}" if curve_file else ""), flush=True)
         if cfg["webhook"] and (kind == "PING" or cfg["webhook_long"]):
             icon = "⚡" if kind == "PING" else "⏳"
             msg = (f"{icon} **{cfg['name']}** {kind} @ {row[0]}\n"
                    f"`{row[3]} ms · +{row[4]} dB over floor · peak {row[5]} dB`")
-            post_webhook(cfg["webhook"], msg)
+            png_path = None
+            if curve_file:
+                try:
+                    import curve_plot
+                    png_path = curve_plot.plot_curve(
+                        os.path.join(cfg["curve_dir"], curve_file),
+                        title=f"{cfg['name']} {kind} {row[0]}")
+                except Exception as exc:
+                    print(f"WARN: curve render failed: {exc}", file=sys.stderr)
+            post_webhook(cfg["webhook"], msg, png_path)
         active = False
 
     try:
@@ -326,6 +383,7 @@ def run(cfg):
                 else:
                     floor = db
                 floor_hist.append(db)
+                curve_buf.append((idx, db, floor))
                 above = db - floor
 
                 if live_w is not None and time.time() >= next_live:

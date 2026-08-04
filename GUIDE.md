@@ -351,6 +351,16 @@ host: <tailscale-ip>).
 
 ---
 
+### Ping curves (echo profiles)
+
+Every detection now saves its waveform (dB vs time at ~20 Hz) so you can
+see the echo's shape: a sharp rise + exponential decay = a small
+**underdense** meteor; long or irregular with fading = a large
+**overdense** meteor. View them in the dashboard's Recent Events table
+(click the ⤢ Shape button) or on the `/ping-curves` page; Discord alerts
+attach a PNG of the curve. Per-echo stats: rise time, peak +dB,
+half-power width, decay time constant (τ), oscillation count, size class.
+
 ### IMO citizen-science reports (optional)
 
 The station can email hourly echo-count summaries to the International

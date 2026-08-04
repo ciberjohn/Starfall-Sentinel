@@ -24,6 +24,13 @@ name = my-station-1
 ; webhook = https://discord.com/api/webhooks/xxxxxxxx/yyyyyyyy
 ; webhook_long = false
 
+; Per-ping waveform capture: the detector saves the echo profile
+; (t_ms,db,floor at ~20 Hz) for every event, powering the ping-curve
+; sparklines, the /ping-curves page, and the Discord curve attachment.
+; curve_dir = data/ping_curves
+; curve_pre_s = 1.0
+; curve_post_s = 1.0
+
 [sstv]
 ; ISS SSTV decoding (iss_sstv_decode.py). Defaults mirror the [detector]
 ; paths; only override if you keep data elsewhere.

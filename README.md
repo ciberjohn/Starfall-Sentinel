@@ -321,6 +321,7 @@ rates rise markedly.
 - [x] Meteor-shower rate monitor (Ping Rate quadrant + `/sporadic-e` hourly chart)
 - [x] Sporadic-E / LONG-event catalog (`/sporadic-e` page + `/api/sporadic-e`)
 - [x] IMO citizen-science report (`imo_report.py`; intro sent to radio@imo.net 08-04 — daily cron paused awaiting format reply)
+- [x] Ping-curve capture (`detector.py` per-event profiles + `curve_plot.py` PNG; Shape column + `/ping-curves` page + Discord curve attachments)
 - [ ] Meteor-shower alert cron (Perseids/Geminids rate spikes)
 
 ## References

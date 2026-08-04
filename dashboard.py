@@ -14,6 +14,9 @@ Endpoints:
   GET /api/iss-hits  recent ISS audio captures (last 20) + clip URLs
   GET /iss-clips/*   WAV clips saved by iss_recorder.py
   GET /api/rate      ping-rate monitor: hourly PING counts (last 48h) + totals
+  GET /api/curves    recent ping-curve files + shape stats (rise/decay/class)
+  GET /api/curve     one curve's data + stats (?file=NAME.csv, traversal-safe)
+  GET /ping-curves   ping-shape gallery page (underdense vs overdense)
   GET /api/sporadic-e  LONG events (sporadic-E / interference catalog)
   GET /sporadic-e    sporadic-E / propagation log page (rate chart + LONG
                      events); alias /sporadic
@@ -32,6 +35,7 @@ import configparser
 import csv
 import datetime
 import json
+import math
 import os
 import sys
 import threading
@@ -39,7 +43,7 @@ import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -538,8 +542,8 @@ footer a{color:var(--series-level)}
 <h2>Recent Events</h2>
 <div class="panel">
 <table id="events">
- <thead><tr><th>Time (UTC)</th><th>Start</th><th>Duration</th><th>Strength</th><th>Kind</th></tr></thead>
- <tbody><tr><td colspan="5" class="empty">no events yet</td></tr></tbody>
+ <thead><tr><th>Time (UTC)</th><th>Start</th><th>Duration</th><th>Strength</th><th>Kind</th><th>Shape</th></tr></thead>
+ <tbody><tr><td colspan="6" class="empty">no events yet</td></tr></tbody>
 </table>
 </div>
 
@@ -558,7 +562,7 @@ saved here.</p>
 <footer>
   Starfall Sentinel — GRAVES meteor-scatter station · build your own from
   <a href="https://github.com/ciberjohn/Starfall-Sentinel" target="_blank" rel="noopener">the public repo on GitHub</a>
-  · <a href="/sporadic-e">Sporadic-E log</a> · <a href="/iss-sstv">ISS SSTV gallery</a>
+  · <a href="/ping-curves">Ping curves</a> · <a href="/sporadic-e">Sporadic-E log</a> · <a href="/iss-sstv">ISS SSTV gallery</a>
 </footer>
 </div>
 <script>
@@ -767,7 +771,7 @@ async function loadEvents() {
   const r = await fetch('/api/pings');
   const d = await r.json();
   if (!d.pings || d.pings.length === 0) {
-    TBODY.innerHTML = '<tr><td colspan="5" class="empty">no events yet</td></tr>';
+    TBODY.innerHTML = '<tr><td colspan="6" class="empty">no events yet</td></tr>';
     return;
   }
   // pings[0] is the newest (pings_payload reverses the tail). Establishes a
@@ -788,8 +792,46 @@ async function loadEvents() {
   TBODY.innerHTML = d.pings.map(p =>
     `<tr><td class="num">${fmtUTC(new Date(p.utc).getTime())}</td><td class="num">${(p.start_ms / 1000).toFixed(1)} s</td>` +
     `<td class="num">${p.duration_ms} ms</td><td class="num">+${p.peak_db_over_floor} dB</td>` +
-    `<td><span class="badge ${p.kind}">${p.kind}</span></td></tr>`
+    `<td><span class="badge ${p.kind}">${p.kind}</span></td>` +
+    `<td>${p.curve_file ? `<button class="curve-btn" data-file="${p.curve_file}" style="cursor:pointer;background:#1e2a3a;color:#7ab8ff;border:none;border-radius:3px;padding:1px 8px;font-size:12px">⤢</button>` : ''}</td></tr>`
   ).join('');
+  document.querySelectorAll('.curve-btn').forEach(b => {
+    b.onclick = async () => {
+      const tr = b.closest('tr');
+      const file = b.dataset.file;
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('curve-row')) {
+        existing.remove(); b.textContent = '⤢'; return;
+      }
+      const data = await (await fetch('/api/curve?file=' + encodeURIComponent(file))).json();
+      if (!data || !data.db || data.db.length < 2) return;
+      const row2 = document.createElement('tr');
+      row2.className = 'curve-row';
+      tr.after(row2);
+      const cell = row2.insertCell();
+      cell.colSpan = 6;
+      const st = data.stats || {};
+      const W2 = 640, H2 = 140;
+      let lo = Math.min(...data.db, ...data.floor), hi = Math.max(...data.db, ...data.floor);
+      if (hi - lo < 4) { hi = lo + 4; }
+      const t0 = data.t_ms[0], t1 = data.t_ms[data.t_ms.length - 1] || t0 + 1;
+      const X = t => 8 + (t - t0) / (t1 - t0) * (W2 - 16);
+      const Y = d => 8 + (hi - d) / (hi - lo) * (H2 - 16);
+      let fp = '', sp = '';
+      data.floor.forEach((d, i) => { const x = X(data.t_ms[i]), y = Y(d); fp += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1) + ' '; });
+      data.db.forEach((d, i) => { const x = X(data.t_ms[i]), y = Y(d); sp += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1) + ' '; });
+      cell.innerHTML = '<svg width="100%" viewBox="0 0 ' + W2 + ' ' + H2 + '" style="background:#0e0e0e;border-radius:4px">' +
+        '<rect width="' + W2 + '" height="' + H2 + '" fill="#0e0e0e"/>' +
+        '<path d="' + fp + '" stroke="#999" stroke-width="1" fill="none" stroke-dasharray="4 4" opacity="0.7"/>' +
+        '<path d="' + sp + '" stroke="#3987e5" stroke-width="1.6" fill="none"/></svg>' +
+        '<div class="num" style="margin-top:4px">rise ' + (st.rise_ms != null ? st.rise_ms + ' ms' : '—') +
+        ' · peak +' + (st.peak_over_floor != null ? st.peak_over_floor : '—') + ' dB' +
+        (st.decay_s != null ? ' · decay τ=' + st.decay_s + ' s' : '') +
+        (st.oscillations ? ' · osc ' + st.oscillations : '') +
+        ' · <b>' + (st.size_class || '—') + '</b></div>';
+      b.textContent = '⤓';
+    };
+  });
 }
 
 async function loadIssHits() {
@@ -910,6 +952,71 @@ updateStardate();
 loadQuadrants();
 loadIssHits();
 loadRate();
+</script>
+</body>
+</html>
+"""
+
+PING_CURVES_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ping Curves — Starfall Sentinel</title>
+<style>
+ body{background:#0d0d0d;color:#c3c2b7;font-family:system-ui,sans-serif;margin:0;padding:18px}
+ h1{font-size:20px;letter-spacing:3px;color:#fff;margin:0 0 4px}
+ .sub{color:#898781;font-size:12px;margin-bottom:12px}
+ a{color:#3987e5}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+ .card{background:#1a1a19;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:10px}
+ .card svg{width:100%;height:120px;display:block;background:#0e0e0e;border-radius:4px}
+ .head{font-size:12px;color:#898781;margin-bottom:6px;font-family:ui-monospace,Menlo,monospace}
+ .stats{font-size:11.5px;color:#c3c2b7;margin-top:6px;line-height:1.5}
+ .class-tag{display:inline-block;background:#1e2a3a;color:#7ab8ff;border-radius:3px;padding:1px 6px;font-size:10.5px;margin-left:6px}
+ .empty{color:#898781;font-size:13px}
+</style>
+</head>
+<body>
+<h1>PING CURVES</h1>
+<div class="sub">Echo profiles (dB vs time) for recent detections. Sharp rise + short exponential decay = underdense (small/faint); long or irregular with fading = overdense (large/bright). <a href="/">← back to the dashboard</a></div>
+<div class="grid" id="grid"><div class="empty">no ping curves yet — they appear after the first detections</div></div>
+<script>
+const W=600,H=120;
+async function load(){
+  const d=await (await fetch('/api/curves')).json();
+  const g=document.getElementById('grid');
+  if(!d.curves.length){g.innerHTML='<div class="empty">no ping curves yet</div>';return;}
+  g.innerHTML=d.curves.map(c=>{
+    const st=c.stats||{};
+    const cls=c.kind||'';
+    return '<div class="card"><div class="head">'+(c.utc||'—')+' · '+cls+' · '+(c.duration_ms||'—')+' ms · +'+(c.peak_db_over_floor||'—')+' dB</div>'+
+      '<svg id="svg-'+c.file.replace(/[^a-z0-9]/gi,'')+'"></svg>'+
+      '<div class="stats">rise '+(st.rise_ms!=null?st.rise_ms+' ms':'—')+' · peak +'+(st.peak_over_floor!=null?st.peak_over_floor:'—')+' dB · half-width '+(st.duration_ms!=null?st.duration_ms:'—')+' ms'+
+      (st.decay_s!=null?' · decay τ='+st.decay_s+' s':'')+(st.oscillations?' · osc '+st.oscillations:'')+
+      '<span class="class-tag">'+(st.size_class||'—')+'</span></div></div>';
+  }).join('');
+  d.curves.forEach(c=>{ if(c.file) draw(c); });
+}
+async function draw(c){
+  const f=c.file.replace(/[^a-z0-9]/gi,'');
+  const svg=document.getElementById('svg-'+f);
+  if(!svg) return;
+  const data=await (await fetch('/api/curve?file='+encodeURIComponent(c.file))).json();
+  if(!data||!data.db||data.db.length<2) return;
+  let lo=Math.min(...data.db,...data.floor), hi=Math.max(...data.db,...data.floor);
+  if(hi-lo<4){hi=lo+4;}
+  const t0=data.t_ms[0], t1=data.t_ms[data.t_ms.length-1]||t0+1;
+  const X=t=>8+(t-t0)/(t1-t0)*(W-16), Y=d=>8+(hi-d)/(hi-lo)*(H-16);
+  let floorPath='', sigPath='';
+  data.floor.forEach((d,i)=>{const x=X(data.t_ms[i]),y=Y(d); floorPath+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';});
+  data.db.forEach((d,i)=>{const x=X(data.t_ms[i]),y=Y(d); sigPath+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';});
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
+  svg.innerHTML='<rect width="'+W+'" height="'+H+'" fill="#0e0e0e"/>'+
+    '<path d="'+floorPath+'" stroke="#999" stroke-width="1" fill="none" stroke-dasharray="4 4" opacity="0.7"/>'+
+    '<path d="'+sigPath+'" stroke="#3987e5" stroke-width="1.6" fill="none"/>';
+}
+setInterval(load,60000);load();
 </script>
 </body>
 </html>
@@ -1062,6 +1169,7 @@ def pings_payload(data_dir):
                 "duration_ms": row[3], "peak_db_over_floor": row[4],
                 "peak_level_db": row[5], "floor_db": row[6],
                 "kind": row[7], "note": row[8] if len(row) > 8 else "",
+                "curve_file": row[9] if len(row) > 9 else "",
             })
         if len(pings) >= PINGS_N:
             break
@@ -1133,6 +1241,125 @@ def sstv_payload(data_dir, limit=24):
         if len(imgs) >= limit:
             break
     return {"images": imgs}
+
+
+def curve_stats(path):
+    """Parse a ping curve CSV (t_ms,db,floor) into shape statistics.
+
+    The profile shape is how radio observers estimate meteor size: a sharp
+    rise + short exponential decay = small underdense trail; long/irregular
+    echoes with 5-10 Hz fading = large overdense trail (IMO theory)."""
+    ts, dbs, floors = [], [], []
+    with open(path) as f:
+        for row in csv.reader(f):
+            if len(row) < 3 or not row[0].lstrip("-").isdigit():
+                continue
+            ts.append(float(row[0]))
+            dbs.append(float(row[1]))
+            floors.append(float(row[2]))
+    if len(dbs) < 3:
+        return None
+    t0 = ts[0]
+    floor = sum(floors) / len(floors)
+    peak = max(dbs)
+    peak_over = peak - floor
+    half = floor + (peak - floor) * 0.5
+    idxs = [i for i, d in enumerate(dbs) if d >= half]
+    dur_ms = (ts[idxs[-1]] - ts[idxs[0]]) if idxs else 0.0
+    rise_ms = 0.0
+    p10, p90 = floor + (peak - floor) * 0.1, floor + (peak - floor) * 0.9
+    i10 = next((i for i, d in enumerate(dbs) if d >= p10), None)
+    i90 = next((i for i, d in enumerate(dbs) if d >= p90), None)
+    if i10 is not None and i90 is not None and i90 >= i10:
+        rise_ms = ts[i90] - ts[i10]
+    # decay time constant: log-linear fit on the descending tail
+    decay_s = None
+    ip = max(range(len(dbs)), key=lambda i: dbs[i])
+    xs, ys = [], []
+    for i in range(ip + 1, len(dbs)):
+        v = dbs[i] - floor
+        if v > 1.0:
+            xs.append((ts[i] - t0) / 1000.0)
+            ys.append(math.log(v))
+    if len(xs) >= 3:
+        n = len(xs)
+        sx, sy = sum(xs), sum(ys)
+        sxx = sum(x * x for x in xs)
+        sxy = sum(x * y for x, y in zip(xs, ys))
+        denom = n * sxx - sx * sx
+        if denom != 0:
+            slope = (n * sxy - sx * sy) / denom
+            if slope < -0.01:
+                decay_s = round(-1.0 / slope, 2)
+    # oscillation: sign changes of (db - 3-window smoothed), swings > 0.6 dB
+    sm = dbs[:]
+    for i in range(1, len(dbs) - 1):
+        sm[i] = (dbs[i - 1] + dbs[i] + dbs[i + 1]) / 3.0
+    osc, prev_sign = 0, 0
+    for i in range(1, len(dbs)):
+        d = dbs[i] - sm[i]
+        if abs(d) < 0.6:
+            continue
+        s = 1 if d > 0 else -1
+        if prev_sign and s != prev_sign:
+            osc += 1
+        prev_sign = s
+    if dur_ms < 1200 and osc < 3:
+        size_class = "underdense (small/faint)"
+    else:
+        size_class = "overdense (large/bright)" + (" / wind-fading" if osc >= 5 else "")
+    return {
+        "rise_ms": round(rise_ms, 0), "peak_db": round(peak, 1),
+        "peak_over_floor": round(peak_over, 1), "duration_ms": round(dur_ms, 0),
+        "decay_s": decay_s, "oscillations": osc, "size_class": size_class,
+    }
+
+
+def curve_payload(data_dir, limit=30):
+    """Recent ping-curve files with stats (for /api/curves + /ping-curves)."""
+    items = []
+    cdir = os.path.join(data_dir, "ping_curves")
+    if os.path.isdir(cdir):
+        for name in sorted(os.listdir(cdir), reverse=True)[:limit]:
+            if not name.endswith(".csv"):
+                continue
+            p = os.path.join(cdir, name)
+            try:
+                st = curve_stats(p)
+            except Exception:
+                st = None
+            items.append({"file": name, "utc": "", "kind": "",
+                          "duration_ms": "", "peak_db_over_floor": "",
+                          "size": os.path.getsize(p), "stats": st})
+    # match utc/kind from pings.csv so cards can show the event time
+    path = os.path.join(data_dir, "pings.csv")
+    for ln in tail_lines(path, 5000):
+        row = next(csv.reader([ln]))
+        if len(row) > 9 and row[9]:
+            for it in items:
+                if it["file"] == row[9]:
+                    it["utc"] = row[0]
+                    it["kind"] = row[7]
+                    it["duration_ms"] = row[3]
+                    it["peak_db_over_floor"] = row[4]
+    return {"curves": items}
+
+
+def curve_data_payload(data_dir, fname):
+    """Full curve data for one file (traversal-safe: caller basenames)."""
+    path = os.path.join(data_dir, "ping_curves", fname)
+    if not os.path.isfile(path):
+        return None
+    ts, dbs, floors = [], [], []
+    with open(path) as f:
+        for row in csv.reader(f):
+            if len(row) < 3 or not row[0].lstrip("-").isdigit():
+                continue
+            ts.append(float(row[0]))
+            dbs.append(float(row[1]))
+            floors.append(float(row[2]))
+    return {"file": fname, "t_ms": ts, "db": dbs, "floor": floors,
+            "stats": curve_stats(path)}
 
 
 def iss_hits_payload(data_dir):
@@ -1218,6 +1445,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(quadrants_payload())
         elif route == "/api/rate":
             self._send_json(rate_payload(self.server.data_dir))
+        elif route == "/api/curves":
+            self._send_json(curve_payload(self.server.data_dir))
+        elif route == "/api/curve":
+            qs = parse_qs(urlparse(self.path).query)
+            fname = os.path.basename(qs.get("file", [""])[0])
+            if fname.endswith(".csv") and ".." not in fname:
+                payload = curve_data_payload(self.server.data_dir, fname)
+                if payload:
+                    self._send_json(payload)
+                else:
+                    self.send_error(404)
+            else:
+                self.send_error(404)
+        elif route == "/ping-curves":
+            self._send(200, PING_CURVES_PAGE.encode(), "text/html; charset=utf-8")
         elif route == "/api/sporadic-e":
             self._send_json(sporadic_e_payload(self.server.data_dir))
         elif route in ("/sporadic-e", "/sporadic"):
