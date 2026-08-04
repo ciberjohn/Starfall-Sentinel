@@ -39,8 +39,9 @@ name = my-station-1
 ; password =
 
 [imo]
-; Recipient + observer identity for the IMO-style echo-count report. Set
-; `to` to the IMO Radio Commission / ERAC address you coordinate with.
+; Recipient + observer identity for the IMO-style echo-count report.
+; Verified recipient (2026-08-04): IMO Radio Commission Director Christian
+; Steyaert - radio@imo.net. Daily cron is PAUSED until the format is agreed.
 ; to =
 ; observer = your-name
 ; station_name = Starfall Sentinel

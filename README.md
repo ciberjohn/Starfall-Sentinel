@@ -4,10 +4,7 @@ Passive meteor detection: listen for reflections of the **GRAVES space-surveilla
 radar** (near Dijon, France) at **143.050 MHz**. No transmitter needed — you only
 receive. Detect meteors through clouds, in daylight, from your living room.
 
-This works from anywhere in range of GRAVES (most of Europe) or any other
-forward-scatter beacon you point it at — the software has no location baked
-in. The first thing you'll do is run one command to get *your* bearing,
-distance and antenna orientation for *your* coordinates.
+**Station:** your QTH, [redacted] (51.5, 0.0) · garden faces SE.
 
 > **New to the project? Read [`GUIDE.md`](GUIDE.md)** — the complete
 > end-to-end instructions: hardware setup → installation → Discord alerts →
@@ -16,8 +13,9 @@ distance and antenna orientation for *your* coordinates.
 | Quick facts | |
 |---|---|
 | Target | GRAVES radar, 143.050 MHz, horizontal polarization |
-| Your bearing & distance | run `python3 bearing.py --from "your-lat,your-lon"` — unique to your location, see below |
-| Recommended antenna | **Half-wave dipole** — 2 × 52 cm, horizontal, indoors is fine to start |
+| Bearing from your QTH | **your bearing true** (~SE — your garden faces it) |
+| Distance | your distance |
+| Recommended antenna | **Interior half-wave dipole** — 2 × 52 cm, on a south-wall window |
 | Software | Linux + rtl-sdr tools + Python 3.8+ (no pip packages needed) |
 
 ## How it works
@@ -29,79 +27,26 @@ few seconds: the classic meteor **"ping"**. Forward-scatter geometry means the
 antenna must be **horizontal** (GRAVES transmits horizontally), but exact aiming
 is forgiving: a dipole's broad pattern easily covers your path.
 
-> Note: a bearing/azimuth number you might see quoted for GRAVES somewhere
-> online is only valid for the specific location whoever wrote it was at —
-> it is *not* a universal number. Your bearing depends entirely on where you
-> are. Compute your own (next section) rather than trusting a number from
-> someone else's QTH.
-
----
-
-## Find your bearing (do this first)
-
-Before mounting anything, get your own true bearing, distance and antenna
-orientation:
-
-```bash
-python3 bearing.py --from "51.5,-0.1"
-```
-
-(That's an illustrative example, not a real station — replace it with your
-own coordinates. Find them from Google Maps: right-click your location and
-the lat/lon is the first entry in the context menu, or use any GPS app.)
-
-The output gives you everything needed to mount the antenna:
-
-- **True bearing** — compass direction from you to GRAVES, in true (not
-  magnetic) degrees. Add `--declination <deg>` for the magnetic-compass
-  equivalent (declination depends on your location and the current year —
-  look yours up if you need it).
-- **Distance** — great-circle range in km.
-- **Dipole axis** — the heading to lay a dipole's elements along, so its
-  broadside (strongest reception) faces GRAVES.
-- **Yagi boom** — if you build a directional antenna instead, point the boom
-  here.
-- **Elevation angles** — rough angle to the forward-scatter specular point
-  at a few reference ranges, useful if you're tilting a directional antenna.
-
-### Antenna pointing, in general
-
-- **Element orientation:** a half-wave dipole is bidirectional — lay the
-  elements *perpendicular* to your bearing line so the antenna's broadside
-  faces the target. `bearing.py` prints the exact dipole-axis heading for
-  your coordinates; don't guess it from a map.
-- **Polarization:** keep it **horizontal**. GRAVES, and most meteor-scatter
-  beacons, transmit horizontally polarized signals — a vertical antenna
-  gives up several dB for no reason.
-- **Element length:** ~**52 cm per side** for GRAVES's 143.050 MHz. For any
-  other frequency, half-length in meters ≈ `71.5 / frequency_MHz`.
-- **Height:** mount as high as practical. A curtain rail or bookshelf beats
-  a windowsill; a fence-post mount beats an indoor one. Distance from the
-  ground and nearby metal/masonry both matter.
-- **Verify empirically, always.** The math gets you in the right
-  neighbourhood, but a dipole's pattern is broad and real reception depends
-  on walls, terrain and local interference. Run `python3 detector.py
-  --calibrate`, compare a couple of positions or orientations, and keep
-  whichever gives the higher, stable level — data over speculation.
+> Note: the 158° azimuth sometimes quoted online is wrong. The verified
+> great-circle bearing your QTH → GRAVES (47.351N, 5.515E) is **your bearing**,
+> so the dipole axis runs **NE–SW (your dipole axis)**, not East–West.
 
 ---
 
 ## The setup: interior dipole (recommended)
 
 **This is the primary configuration, not a compromise.** GRAVES is a kW-class
-signal and unusually strong on the ground across most of Europe; many
-observers get their first detection from a dipole indoors, on the first try.
-A 143 MHz half-wave dipole is only **1.05 m tip-to-tip** — it fits on a
-windowsill.
+signal and unusually strong on the ground; most UK observers get their first
+detection from a dipole indoors, on the first try. A 143 MHz half-wave dipole is
+only **1.05 m tip-to-tip** — it fits on a windowsill.
 
 ### Mounting (10 minutes)
 
-1. **Position:** a window whose wall roughly faces the direction from you to
-   GRAVES (see "Find your bearing" above) — any room. Window glass costs
-   only ~1–3 dB at VHF, so it doesn't need to be exact.
-2. **Orientation:** elements **horizontal**, running along your computed
-   dipole axis, so the broadside faces GRAVES. A small compass app on your
-   phone is all you need to lay it out once you have the heading.
+1. **Position:** a window on the **south wall** of the house (any room; a south
+   wall that faces the garden is ideal). Window glass costs only ~1–3 dB at VHF.
+2. **Orientation:** elements **horizontal**, running **NE–SW** — i.e. the dipole
+   lies along the your dipole axis line, so its broadside faces ~123° SE toward GRAVES.
+   A small compass app on your phone is all you need.
 3. **Height:** as high as practical — curtain rail, bookshelf top, wardrobe.
    Every metre helps, but a sill at 1 m works.
 4. **Element length:** **52 cm per side** (143 MHz). If your dongle came with
@@ -111,54 +56,31 @@ windowsill.
 
 Walls attenuate (plasterboard ~1–2 dB, brick ~5–10 dB, double glazing ~1–3 dB)
 but GRAVES has margin to spare. If a windowsill is inconvenient, a wall mount
-anywhere facing roughly the right direction still works. **Verify
-empirically**: run `detector.py --calibrate` at two positions and keep the
-one with the higher level — data over speculation.
+anywhere on the south side still works. **Verify empirically**: run
+`detector.py --calibrate` at two positions and keep the one with the higher
+level — data over speculation.
 
 ### Cable
 
 A **1–3 m RG174 patch lead (SMA male → SMA male)** from dipole to dongle is all
 the indoor setup needs. Details in `SHOPPING.md`.
 
-### Optional later upgrade: outdoor Yagi
+### Optional later upgrade: Yagi on the fence pillar
 
 When you want extra sensitivity for weak (daytime/off-peak) activity: mount a
-2 m-band Yagi **horizontal**, boom pointed at your computed bearing, as high
-up as you can manage outdoors, fed by an RG174 run through a door/window seal
-if you'd rather not drill. This is an enhancement, not a requirement.
+2 m-band Yagi **horizontal**, boom at **123°**, 1.5–2 m up on the fence pillar,
+fed by 10 m of RG174 through the door rubber seal — no drilling required. This
+is an enhancement, not a requirement.
 
 ---
 
 ## Hardware shopping list
 
-### The receiver (if you don't already have one)
-
-This whole project runs on an **RTL-SDR** — a ~$25–35 / £20–30 USB dongle
-built around the RTL2832U chip. They were originally sold as cheap USB TV
-tuners (hence sometimes being called a "DTV receptor" in older guides); the
-same chip turns out to be a capable general-purpose SDR, which is the entire
-reason this hobby exists on a budget.
-
-**Recommended: "RTL-SDR Blog V3" or "RTL-SDR Blog V4"** — the de facto
-standard in the RTL-SDR community: SMA connector (no adapter needed), a
-temperature-compensated oscillator (TCXO, keeps the frequency stable so you
-don't have to keep re-tuning), and well documented. Search for exactly that
-name — **`RTL-SDR Blog V3`** or **`RTL-SDR Blog V4`** — on Amazon, eBay, AliExpress,
-or your preferred electronics retailer:
-<https://www.amazon.com/s?k=RTL-SDR+Blog+V3>
-
-Any cheap RTL2832U + R820T2 dongle also works (search **`RTL2832U R820T2 dongle`**)
-— it'll likely have an **MCX** connector instead of SMA (needs a ~$5 MCX→SMA
-adapter, see below) and drift in frequency a bit more without a TCXO, but it's
-the same underlying hardware and this project's `--ppm` correction handles
-the drift fine.
-
-See **`SHOPPING.md`** for an example UK-supplier list with links — adapt the
-search terms to your own country's retailers. Summary:
+See **`SHOPPING.md`** for the full UK-supplier list with links. Summary:
 
 | Item | Need | Cost |
 |---|---|---|
-| RTL-SDR dongle (USB receiver — see above if you don't have one) | Buy once | $25–35 / £20–30 |
+| RTL-SDR dongle (your "DTV receptor") | ✔ have it | — |
 | Antenna | telescopic dipole kit **or** bare-wire dipole (2 × 52 cm) | £0–20 |
 | Coax | RG174, SMA–SMA, 1–3 m | £8–12 |
 | MCX→SMA adapter | only if your dongle has an MCX socket | £5 |
@@ -172,8 +94,8 @@ search terms to your own country's retailers. Summary:
 | What | Requirement | Notes |
 |---|---|---|
 | Computer | A laptop or Raspberry Pi 4/5 running **Ubuntu/Debian Linux** | The dongle plugs into this. A Pi 4/5 (~£50–70) is ideal for 24/7; an old laptop works identically |
-| SDR | RTL-SDR dongle (~$25–35 / £20–30) | See "The receiver" above if you need to buy one |
-| Antenna | Dipole (see hardware shopping list above) | ~$0–20, or free if your dongle kit included telescopic whips |
+| SDR | RTL-SDR dongle ("DTV receptor") | Already owned |
+| Antenna | Dipole (above) | Already covered |
 | Python | 3.8+ | Ubuntu 22.04+ and Pi OS Bookworm ship 3.10/3.11 — no install needed |
 | Internet | One-time, for `apt` and `git` | Not needed afterwards |
 
@@ -207,13 +129,14 @@ rtl_test
 
 ### Step 3 — Get the code
 
+On a fresh machine:
+
 ```bash
 gh repo clone ciberjohn/Starfall-Sentinel
 cd Starfall-Sentinel
 ```
 
-(No `gh`? `git clone https://github.com/ciberjohn/Starfall-Sentinel` works
-identically.)
+(On this host the project already lives at `~/graves-detector` — skip this step.)
 
 ### Step 4 — Configure
 
@@ -221,29 +144,8 @@ identically.)
 cp config.ini.example config.ini
 ```
 
-`config.ini` is gitignored — it holds your personal, per-deployment settings
-and is never committed. The detector defaults already target GRAVES
-correctly; the two things worth editing now are the `[station]` section and,
-later, the Discord webhook.
-
-The `[station]` section drives the dashboard's bearing compass:
-
-| Key | Meaning |
-|---|---|
-| `lat`, `lon` | your station's coordinates (same numbers you passed to `bearing.py`) |
-| `region` | freeform text shown in the dashboard header — keep it **region-level only** (e.g. "Pacific Northwest, USA", "Bavaria, Germany"), never a postcode or house-level detail |
-| `target_name` | label for the radar/beacon you're aiming at (defaults to "GRAVES radar") |
-| `target_lat`, `target_lon` | that target's coordinates (defaults to GRAVES's) |
-
-**Privacy note:** these coordinates are used locally to compute the bearing
-and distance shown on the dashboard, but the *displayed* numbers are
-deliberately rounded to the nearest 5° / 100 km, regardless of how precisely
-you fill in `[station]`. That's intentional, not a bug — the dashboard is
-designed to be safe to run as a public 24/7 stream, and a precise bearing +
-distance from a target whose own coordinates are public (GRAVES, or any
-other well-known beacon) would be enough to reverse-geolocate a station to
-street level. Don't try to "fix" this back to exact values if you fork the
-project — the coarsening is the point.
+Default settings target GRAVES correctly. Only touch this later for the Discord
+webhook or gain tweaks.
 
 ### Step 5 — Test without hardware (2 minutes, do this first)
 
@@ -286,25 +188,16 @@ python3 dashboard.py --port 8090 --data-dir data
 Open **http://localhost:8090** on the acquisition machine for the **Starfall
 Sentinel** dashboard — a live strip chart of signal level and noise floor, a
 plain-language explainer for anyone watching who doesn't know what GRAVES or
-forward-scatter is, and the recent-events table. From any other device on
-your network, open **http://\<your-tailscale-ip\>:8090** — or just use the
-machine's regular LAN IP if you're not using Tailscale.
-
-> [Tailscale](https://tailscale.com) is an optional private mesh VPN — it
-> lets you reach the dashboard securely from your phone or another computer
-> without opening any ports on your router or exposing it to the public
-> internet. Not required: plain LAN access, a reverse proxy, or a tunnel
-> service all work too.
-
-Zero-dependency Python stdlib, same as the rest of the project — no
+forward-scatter is, and the recent-events table. From any other device on your
+Tailscale network, open **http://<tailscale-ip>:8090** (or the Pi's Tailscale
+IP). Zero-dependency Python stdlib, same as the rest of the project — no
 Docker or pip install required; it runs as the `graves-dashboard` systemd
 service (Step 9). Designed to double as an OBS Browser Source if you want to
 put the station on a public stream — dark-themed, self-explanatory for
 viewers with no context, a light Star Trek/LCARS visual touch, a synthesized
 ambient hum + a distinct chime on real meteor pings (mute toggle in the
 header), four live "sensor quadrants" (solar weather, the next/active meteor
-shower, a compass showing the bearing toward GRAVES computed from your
-`[station]` config — rounded for privacy, see Step 4 — and the next ISS
+shower, a compass locked to the true bearing toward GRAVES, and the next ISS
 pass with rise/max/set time, azimuth, elevation, duration), and — for passes
 that clear a configurable elevation bar — an "ISS Audio Log": the dongle
 briefly retunes off GRAVES to listen on the ISS's own frequencies, and any
@@ -313,11 +206,11 @@ clip and playable right on the page.
 
 The chart library is bundled, so the core station (detector, chart, alerts)
 needs **no internet** as before. Two quadrants are the exception: solar
-weather (Kp index + solar wind, from NOAA, refreshed every 5 minutes) and
-the ISS pass predictor (orbital elements from Celestrak, refreshed every
-few hours and cached to disk, so a network blip just ages the prediction
-instead of breaking it). If there's no connection at all, those two panels
-just read "no data"; everything else keeps working offline.
+weather (Kp index + solar wind, from NOAA, refreshed every 5 minutes) and the
+ISS pass predictor (TLE from Celestrak, refreshed every few hours and cached
+to disk — a stale-but-present TLE keeps working through a network outage).
+If there's no connection at all, those two panels just read "no data";
+everything else keeps working offline.
 
 If you edit `dashboard.py`, pick up the change on a running station with
 `systemctl --user restart graves-dashboard`.
@@ -347,12 +240,11 @@ systemctl --user daemon-reload
 systemctl --user enable --now graves-watch graves-dashboard graves-iss
 ```
 
-> The `.service` files are templates using a literal `/home/YOUR_USERNAME/graves-detector`
-> placeholder — the `sed` above (or `deploy.sh`) substitutes in your actual
-> repo path. Don't just `cp` them verbatim unless your clone happens to live
-> at that exact literal path, and don't add `User=`/`SupplementaryGroups=` —
-> see the comments in `graves-watch.service` for why (`--user` units already
-> run as you).
+> The `.service` files are templates written for a `~/graves-detector`
+> checkout — the `sed` (or `deploy.sh`) substitutes in your actual repo path.
+> Don't just `cp` them verbatim unless your clone happens to live at that
+> exact path, and don't add `User=`/`SupplementaryGroups=` — see the comments
+> in `graves-watch.service` for why (`--user` units already run as you).
 
 Check: `systemctl --user status graves-watch graves-dashboard graves-iss`.
 
@@ -362,14 +254,13 @@ tradeoff, since that's a few minutes of lost meteor coverage per qualifying
 pass. Raise the threshold for fewer/stronger passes, lower it to catch more
 at the cost of more downtime. See `config.ini.example`'s `[iss]` section.
 
-`live.csv` (the 1 Hz signal-level log) is kept bounded — `live_max_hours` in
-`config.ini` (default 12h, 0 = disable) trims it every 30 min, so it never
-grows unbounded even left running for years. Not that it was urgent (~2
-MB/day at 1 row/s), but there's no reason to let it grow forever either. If
-you want your own history/config backed up somewhere (cloud storage, a NAS,
-whatever you use), a simple cron job or systemd timer copying `data/` and
-`config.ini` wherever you like works fine — this project doesn't assume or
-require any particular backup destination.
+`deploy.sh` also installs a daily `graves-backup.timer` if `~/Dropbox`
+exists — it mirrors `data/` (pings + live samples) and `config.ini` into
+`~/Dropbox/BACKUPS/Starfall-Sentinel/`, which Dropbox then syncs to the
+cloud on its own. Check: `systemctl --user list-timers graves-backup.timer`.
+`live.csv` itself is also kept bounded now — `live_max_hours` in
+`config.ini` (default 12h) trims it every 30 min, so it no longer grows
+forever (not that it was a real risk: ~2 MB/day, ~800 MB/year at 1 row/s).
 
 ### Step 10 — Discord alerts (optional)
 
@@ -408,7 +299,6 @@ rates rise markedly.
 | Dashboard shows `OFFLINE` | No fresh `live.csv` sample in 30 s → detector not running (or the dongle dropped). Check `systemctl --user status graves-watch` |
 | Empty ping log after hours | Normal outside showers; check GRAVES is actually up and your floor is stable in calibrate |
 | Webhook alerts never arrive | Wrong URL, or Discord rate limits → check detector console for `WARN: webhook failed` |
-| ISS Audio Log stays empty | Either no pass has cleared `[iss] min_elevation` yet (`journalctl --user -u graves-iss`), or it did and nothing happened to be transmitting — a quiet pass is a normal result, not a bug |
 
 ## Operating notes
 
@@ -420,24 +310,18 @@ rates rise markedly.
 
 ## Roadmap
 
-- [x] Location-agnostic bearing/distance/antenna-orientation tool (`bearing.py`)
-- [x] RTL-SDR detector + simulator with an end-to-end self-test (6/6 seeds PASS)
-- [x] Real-time dashboard with privacy-coarsened bearing display
+- [x] Geometry verified (bearing your bearing, dipole your dipole axis)
+- [x] RTL-SDR toolchain installed
+- [x] Detector + simulator + end-to-end test (6/6 seeds PASS)
+- [x] Real-time dashboard + remote access
+- [x] First live calibration when the dongle arrives
 - [x] Discord webhook alerting on pings
 - [x] `deploy.sh` one-command install + systemd autostart
-- [x] ISS pass predictor + automated pass listener (`graves-iss`, WAV capture)
+- [x] ISS SSTV decode (`sstv_decoder.py` pure-stdlib Robot 36 + `iss_sstv_decode.py` + timer)
+- [x] Meteor-shower rate monitor (Ping Rate quadrant + `/sporadic-e` hourly chart)
+- [x] Sporadic-E / LONG-event catalog (`/sporadic-e` page + `/api/sporadic-e`)
+- [x] IMO citizen-science report (`imo_report.py`; intro sent to radio@imo.net 08-04 — daily cron paused awaiting format reply)
 - [ ] Meteor-shower alert cron (Perseids/Geminids rate spikes)
-
-## Contributing
-
-Starfall Sentinel is MIT licensed (see `LICENSE`) and maintained as a small,
-shared community tool — forks, pull requests and issues are all welcome. If
-you adapt it for a different target beacon, a different SDR, or a different
-platform, consider sending the change back: `bearing.py`'s `TARGETS` dict and
-the `[station]` config section were built specifically so this project isn't
-tied to any one radar or any one person's location, and improvements in that
-spirit are especially welcome. No CLA, no formal process — open an issue or
-a PR.
 
 ## References
 
