@@ -16,7 +16,14 @@ Type=simple
 WorkingDirectory=/home/YOUR_USERNAME/graves-detector
 ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/graves-detector/detector.py --config /home/YOUR_USERNAME/graves-detector/config.ini
 Restart=on-failure
-RestartSec=10
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/YOUR_USERNAME/graves-detector/data
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
 
 [Install]
 WantedBy=default.target

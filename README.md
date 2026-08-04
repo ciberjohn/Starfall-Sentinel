@@ -13,7 +13,7 @@ receive. Detect meteors through clouds, in daylight, from your living room.
 | Quick facts | |
 |---|---|
 | Target | GRAVES radar, 143.050 MHz, horizontal polarization |
-| Bearing | depends on your QTH — compute it with `bearing.py` (Step 6) |
+| Bearing | depends on your QTH — compute it with `bearing.py` (Step 4) |
 | Distance | varies with your QTH — `bearing.py` prints it |
 | Recommended antenna | **Interior half-wave dipole** — 2 × 52 cm, on a south-wall window |
 | Software | Linux + rtl-sdr tools + Python 3.8+ (no pip packages needed) |
@@ -27,10 +27,11 @@ few seconds: the classic meteor **"ping"**. Forward-scatter geometry means the
 antenna must be **horizontal** (GRAVES transmits horizontally), but exact aiming
 is forgiving: a dipole's broad pattern easily covers your path.
 
-> Note: the 158° azimuth sometimes quoted online is wrong. Compute the
-> great-circle bearing from YOUR location to GRAVES (47.351N, 5.515E) with
-> `bearing.py` — it prints your azimuth, distance, and dipole axis, and
-> explains how to orient the antenna.
+> Note: the 158° azimuth sometimes quoted online is for a different QTH —
+> don't reuse another observer's numbers. Compute the great-circle bearing
+> from YOUR location to GRAVES (47.351N, 5.515E) with `bearing.py` — it
+> prints your azimuth, distance, and dipole axis, and explains how to
+> orient the antenna.
 
 ---
 
@@ -71,7 +72,8 @@ the indoor setup needs. Details in `SHOPPING.md`.
 ### Optional later upgrade: Yagi on the fence pillar
 
 When you want extra sensitivity for weak (daytime/off-peak) activity: mount a
-2 m-band Yagi **horizontal**, boom at **123°**, 1.5–2 m up on the fence pillar,
+2 m-band Yagi **horizontal**, boom pointed at *your* bearing from
+`bearing.py`, 1.5–2 m up on a fence pillar,
 fed by 10 m of RG174 through the door rubber seal — no drilling required. This
 is an enhancement, not a requirement.
 
@@ -135,7 +137,7 @@ rtl_test
 On a fresh machine:
 
 ```bash
-gh repo clone ciberjohn/Starfall-Sentinel
+git clone https://github.com/ciberjohn/Starfall-Sentinel.git
 cd Starfall-Sentinel
 ```
 
@@ -147,8 +149,27 @@ cd Starfall-Sentinel
 cp config.ini.example config.ini
 ```
 
-Default settings target GRAVES correctly. Only touch this later for the Discord
-webhook or gain tweaks.
+Two things matter here:
+
+1. **Your coordinates** — set `[station] lat` and `lon` to your location
+   (right-click a map to copy lat/lon, or use a GPS app). The dashboard's
+   compass quadrant, the ISS pass predictions, and the IMO report all use
+   them.
+2. **Your Discord webhook** — paste it into `[detector] webhook` (Part 3 /
+   Step 10). The default gain and frequency already target GRAVES.
+
+**Compute your bearing** (how to aim the antenna — do this now):
+
+```bash
+python3 bearing.py --from "51.5,-0.1"      # replace with YOUR lat,lon
+```
+
+It prints your great-circle **azimuth** to GRAVES (e.g. `Bearing: 136.5°`),
+your **distance**, and the **dipole axis** (e.g. `46°`). To mount the
+antenna: lay the dipole's two elements **horizontal**, running along the
+printed axis line — its **broadside** (perpendicular to the elements) then
+faces GRAVES. A phone compass app is all you need to line it up. (Don't
+reuse someone else's numbers — the bearing is different for every QTH.)
 
 ### Step 5 — Test without hardware (2 minutes, do this first)
 
@@ -263,7 +284,7 @@ exists — it mirrors `data/` (pings + live samples) and `config.ini` into
 cloud on its own. Check: `systemctl --user list-timers graves-backup.timer`.
 `live.csv` itself is also kept bounded now — `live_max_hours` in
 `config.ini` (default 12h) trims it every 30 min, so it no longer grows
-forever (not that it was a real risk: ~2 MB/day, ~800 MB/year at 1 row/s).
+forever (not that it was a real risk: ~3.5 MB/day, ~1.3 GB/year at 1 row/s).
 
 ### Step 10 — Discord alerts (optional)
 
@@ -323,7 +344,7 @@ rates rise markedly.
 - [x] ISS SSTV decode (`sstv_decoder.py` pure-stdlib Robot 36 + `iss_sstv_decode.py` + timer)
 - [x] Meteor-shower rate monitor (Ping Rate quadrant + `/sporadic-e` hourly chart)
 - [x] Sporadic-E / LONG-event catalog (`/sporadic-e` page + `/api/sporadic-e`)
-- [x] IMO citizen-science report (`imo_report.py`; intro sent to radio@imo.net 08-04 — daily cron paused awaiting format reply)
+- [x] IMO citizen-science report (`imo_report.py` — hourly echo counts emailed to `[imo] to`; see GUIDE Part 5)
 - [x] Ping-curve capture (`detector.py` per-event profiles + `curve_plot.py` PNG; Shape column + `/ping-curves` page + Discord curve attachments)
 - [ ] Meteor-shower alert cron (Perseids/Geminids rate spikes)
 

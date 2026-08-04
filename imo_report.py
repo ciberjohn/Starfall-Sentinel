@@ -13,7 +13,7 @@ By default this script only builds the report; pass --send to email it.
 Usage:
   python3 imo_report.py --config config.ini --date 2026-08-03
   python3 imo_report.py --config config.ini --send
-  python3 imo_report.py --config config.ini --pull-from-vostro --send
+  python3 imo_report.py --config config.ini --pull-ssh --send
 """
 
 import argparse
@@ -21,6 +21,7 @@ import configparser
 import csv
 import datetime
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -35,7 +36,7 @@ def build_parser():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", default=os.path.join(HERE, "config.ini"))
     p.add_argument("--pings", default=None, help="path to pings.csv")
-    p.add_argument("--pull-from-vostro", action="store_true",
+    p.add_argument("--pull-ssh", action="store_true",
                    help="fetch pings.csv from the station host via SSH first")
     p.add_argument("--date", default=None,
                    help="UTC date to report (default: yesterday)")
@@ -60,9 +61,9 @@ def load_ini(config_path):
     return cfg
 
 
-def fetch_pings_from_vostro(host, repo):
+def fetch_pings_ssh(host, repo):
     cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host,
-           f"cat {repo}/data/pings.csv"]
+           f"cat {shlex.quote(repo)}/data/pings.csv"]
     return subprocess.run(cmd, capture_output=True, check=True).stdout
 
 
@@ -131,16 +132,16 @@ def main():
     args = build_parser().parse_args()
     cfg = load_ini(args.config)
 
-    if args.pull_from_vostro:
+    if args.pull_ssh:
         station = cfg.get("station", {})
         host = args.station_host or station.get("ssh_host") or ""
         repo = args.station_repo or station.get("ssh_repo") or ""
         if not host or not repo:
             raise SystemExit(
-                "FATAL: --pull-from-vostro needs [station] ssh_host and "
+                "FATAL: --pull-ssh needs [station] ssh_host and "
                 "ssh_repo in config.ini (or --station-host/--station-repo)")
         print(f"[imo-report] pulling pings.csv from {host} ...", flush=True)
-        pings_text = fetch_pings_from_vostro(host, repo).decode(errors="replace")
+        pings_text = fetch_pings_ssh(host, repo).decode(errors="replace")
     else:
         pings_path = args.pings or cfg.get("detector", {}).get("log", "data/pings.csv")
         with open(pings_path) as f:

@@ -114,14 +114,14 @@ def load_config(argv):
         "curve_archive_days": 730.0,
         "curve_archive_dir": None,
         "archive_only": False,
-        "name": "starfall-1",
+        "name": "my-station-1",
         "calibrate": False,
     }
     args = vars(build_parser().parse_args(argv))
 
     ini_path = args.get("config")
     if ini_path and os.path.exists(ini_path):
-        cp = configparser.ConfigParser()
+        cp = configparser.ConfigParser(interpolation=None)
         cp.read(ini_path)
         if cp.has_section("detector"):
             for k, v in cp["detector"].items():

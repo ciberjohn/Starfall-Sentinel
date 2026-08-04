@@ -1,0 +1,8 @@
+[Unit]
+Description=Starfall Sentinel — back up data/ + config.ini to Dropbox
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/YOUR_USERNAME/graves-detector
+ExecStart=/home/YOUR_USERNAME/graves-detector/backup.sh

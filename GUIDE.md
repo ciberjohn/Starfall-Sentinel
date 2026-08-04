@@ -45,7 +45,7 @@ parts in order. Each part ends with a verification step — don't skip them.
 2. **Position:** a window on the **south wall** of the house. Any room works;
    the wall facing your garden is ideal.
 3. **Orientation:** dipole **horizontal**, elements perpendicular to your
-   GRAVES bearing (compute it with `bearing.py` — Step 2.6). Its broadside
+   GRAVES bearing (compute it with `bearing.py` — Step 2.4). Its broadside
    then faces the radar. Use a phone compass app to line it up.
 4. **Height:** as high as practical (curtain rail, bookshelf). A sill at 1 m
    still works.
@@ -104,7 +104,7 @@ rtl_test
 ### Step 2.3 — Get the code
 
 ```bash
-gh repo clone ciberjohn/Starfall-Sentinel
+git clone https://github.com/ciberjohn/Starfall-Sentinel.git
 cd Starfall-Sentinel
 ```
 
@@ -116,8 +116,27 @@ cd Starfall-Sentinel
 cp config.ini.example config.ini
 ```
 
-Defaults target GRAVES correctly. You only edit this for the Discord webhook
-(Part 3) or gain tweaks.
+Two things matter here:
+
+1. **Your coordinates** — set `[station] lat` and `lon` to your location
+   (right-click a map to copy lat/lon, or use a GPS app). The dashboard's
+   compass quadrant, the ISS pass predictions, and the IMO report all use
+   them.
+2. **Your Discord webhook** — paste it into `[detector] webhook`
+   (Part 3). The default gain and frequency already target GRAVES.
+
+**Compute your bearing** (how to aim the antenna — do this now):
+
+```bash
+python3 bearing.py --from "51.5,-0.1"      # replace with YOUR lat,lon
+```
+
+It prints your great-circle **azimuth** to GRAVES, your **distance**, and
+the **dipole axis**. To mount the antenna: lay the dipole's two elements
+**horizontal**, running along the printed axis line — its **broadside**
+(perpendicular to the elements) then faces GRAVES. A phone compass app is
+all you need to line it up. (Don't reuse someone else's numbers — the
+bearing is different for every QTH.)
 
 ### Step 2.5 — Test without hardware
 
@@ -187,8 +206,8 @@ picks up the change.
 ### 3.1 Create a channel webhook
 
 1. In Discord, open the server and channel where alerts should appear
-   (suggestion: create a dedicated **#meteor-station** channel in the fleet
-   server — or reuse #science).
+   (suggestion: create a dedicated **#meteor-station** channel in your
+   server).
 2. Click the channel **Settings** (gear icon) → **Integrations** →
    **Webhooks** → **New Webhook**.
 3. Name it after your station (e.g. **"My Meteor Station"**).
@@ -213,7 +232,7 @@ webhook = https://discord.com/api/webhooks/1234567890/ABC...
 python3 detector.py --test-webhook --config config.ini
 ```
 
-✔ A ✅ **starfall-1** webhook test message appears in the channel. If not,
+✔ A ✅ **my-station-1** webhook test message appears in the channel. If not,
 re-check the URL and the permission.
 
 ### 3.4 Restart the detector with alerts
@@ -226,7 +245,7 @@ systemctl --user restart graves-watch        # if installed as a service
 Every ping posts:
 
 ```
-⚡ **starfall-1** PING @ 2026-08-03T06:32:07.363Z
+⚡ **my-station-1** PING @ 2026-08-03T06:32:07.363Z
 `1000 ms · +23.0 dB over floor · peak 66.1 dB`
 ```
 
@@ -299,6 +318,13 @@ against a real pass with `python3 iss_recorder.py --calibrate --frequency 145.82
 margin is only a few dB, not GRAVES' 10+.
 
 ### Remote access (Tailscale)
+
+First install Tailscale on the station host (or skip it — the LAN IP works
+identically for devices on your home network):
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up
+```
 
 | Task | How |
 |---|---|
@@ -375,13 +401,9 @@ archived — the IMO address is the live channel).
 - Configure `config.ini [imo]`: `to` (recipient), `observer`, `station_name`.
 - Build-only (no email): `python3 imo_report.py --config config.ini --date 2026-08-04`
 - Send (pulls pings.csv from the station over SSH first):
-  `python3 imo_report.py --config config.ini --pull-from-vostro --send`
-- A daily 08:30 cron (`~/.hermes/scripts/starfall_imo.sh`) exists but is
-  **PAUSED** until the Commission confirms the format it wants. The
-  introduction email was sent 2026-08-04 from the station agent (Spock) on
-  behalf of the owner, requesting replies go to both the monitoring agent's
-  address and the owner's address. Resume the "IMO forward-scatter report
-  (daily)" cron job once the format is agreed.
+  `python3 imo_report.py --config config.ini --pull-ssh --send`
+- Schedule it however you like — e.g. a daily cron job or systemd timer
+  running `imo_report.py --config config.ini --send`.
 
 ## Part 6 — Day-1 checklist (when hardware arrives)
 

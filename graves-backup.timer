@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Starfall Sentinel backup to Dropbox
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target
