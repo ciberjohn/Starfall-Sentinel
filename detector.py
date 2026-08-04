@@ -48,6 +48,12 @@ def build_parser():
     p.add_argument("--ppm", type=int, default=argparse.SUPPRESS, help="SDR frequency correction ppm")
     p.add_argument("--threshold-db", type=float, default=argparse.SUPPRESS,
                    help="ping threshold above noise floor (dB)")
+    p.add_argument("--end-margin-db", type=float, default=argparse.SUPPRESS,
+                   help="event ends only below floor+this (dB); keeps one "
+                        "fading echo from splitting into many pings")
+    p.add_argument("--hangover-windows", type=int, default=argparse.SUPPRESS,
+                   help="consecutive quiet windows below end-margin before "
+                        "the event is closed (default 10 = 500 ms at 20 Hz)")
     p.add_argument("--min-ms", type=float, default=argparse.SUPPRESS, help="min ping duration (ms)")
     p.add_argument("--max-ms", type=float, default=argparse.SUPPRESS,
                    help="events longer than this are flagged LONG (sporadic-E / interference)")
@@ -95,6 +101,8 @@ def load_config(argv):
         "gain": 40,
         "ppm": 0,
         "threshold_db": 10.0,
+        "end_margin_db": 3.0,
+        "hangover_windows": 10,
         "min_ms": 80.0,
         "max_ms": 8000.0,
         "noise_history_s": 25.0,
@@ -114,7 +122,7 @@ def load_config(argv):
         "curve_archive_days": 730.0,
         "curve_archive_dir": None,
         "archive_only": False,
-        "name": "my-station-1",
+        "name": "mountain-ash-1",
         "calibrate": False,
     }
     args = vars(build_parser().parse_args(argv))
@@ -140,8 +148,11 @@ def load_config(argv):
     for k in ("threshold_db", "min_ms", "max_ms", "noise_history_s",
               "window_ms", "floor_percentile", "live_max_hours",
               "curve_pre_s", "curve_post_s",
-              "curve_retention_days", "curve_archive_days"):
+              "end_margin_db"):
         cfg[k] = float(cfg[k])
+    for k in ("hangover_windows", "curve_retention_days",
+              "curve_archive_days"):
+        cfg[k] = int(cfg[k])
     cfg["webhook_long"] = str(cfg["webhook_long"]).lower() in ("1", "true", "yes")
     cfg["calibrate"] = str(cfg["calibrate"]).lower() in ("1", "true", "yes")
     cfg["test_webhook"] = str(cfg["test_webhook"]).lower() in ("1", "true", "yes")
@@ -543,9 +554,17 @@ def run(cfg):
                                 peak_above = above
                                 peak_level = db
                                 floor_at_peak = floor
+                        elif above >= cfg["end_margin_db"]:
+                            # still elevated above the end-floor: the echo is
+                            # fading but has not finished - keep the event
+                            # alive so one fading echo isn't split into many
+                            # pings (overdense trails fluctuate across the
+                            # detection threshold)
+                            below_count = 0
+                            last_active_idx = idx
                         else:
                             below_count += 1
-                            if below_count >= 2:  # two consecutive quiet windows => end
+                            if below_count >= cfg["hangover_windows"]:
                                 emit(idx)
                 idx += 1
         if active:
