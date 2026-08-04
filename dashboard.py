@@ -1424,10 +1424,11 @@ def _curve_stats(ts, dbs, floors):
         score += 1                    # meteor: near-instant rise
     elif rise_ms > 800:
         score -= 1                    # aircraft: slow build-up
-    if osc_rate >= 2.0:
-        score += 1                    # 5-10 Hz fading: overdense meteor
-    elif osc_rate < 0.5:
-        score -= 1                    # smooth: aircraft/other
+    if dur_s > 1.0:                   # fading only meaningful on long echoes
+        if osc_rate >= 2.0:
+            score += 1                # overdense fading: supporting evidence
+        elif osc_rate < 0.5 and dur_s > 2.0:
+            score -= 1                # long + smooth: aircraft/other
     if dur_s <= 5.0:
         score += 1
     elif dur_s > 15.0:
