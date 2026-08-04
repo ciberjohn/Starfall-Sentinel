@@ -74,7 +74,7 @@ name = my-station-1
 lat = 0.0
 lon = 0.0
 ; Freeform text shown in the dashboard header - keep it region-level only
-; (e.g. "South Wales, UK", "Ontario, Canada") if this page will ever be
+; (e.g. "Example Region, Country", "Ontario, Canada") if this page will ever be
 ; public or streamed. Never a postcode/zip or house-level detail.
 region = set your region here
 
