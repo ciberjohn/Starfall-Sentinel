@@ -13,8 +13,8 @@ receive. Detect meteors through clouds, in daylight, from your living room.
 | Quick facts | |
 |---|---|
 | Target | GRAVES radar, 143.050 MHz, horizontal polarization |
-| Bearing (example) | **~123° true** for a your region observer — compute yours with `bearing.py` |
-| Distance | your distance |
+| Bearing | depends on your QTH — compute it with `bearing.py` (Step 6) |
+| Distance | varies with your QTH — `bearing.py` prints it |
 | Recommended antenna | **Interior half-wave dipole** — 2 × 52 cm, on a south-wall window |
 | Software | Linux + rtl-sdr tools + Python 3.8+ (no pip packages needed) |
 
@@ -27,10 +27,10 @@ few seconds: the classic meteor **"ping"**. Forward-scatter geometry means the
 antenna must be **horizontal** (GRAVES transmits horizontally), but exact aiming
 is forgiving: a dipole's broad pattern easily covers your path.
 
-> Note: the 158° azimuth sometimes quoted online is wrong. The verified
-> great-circle bearing from a your region observer → GRAVES (47.351N, 5.515E)
-> is **~your bearing**, so that observer's dipole axis runs **NE–SW (your dipole axis)**,
-> not East–West. Compute yours with `bearing.py` for your own QTH.
+> Note: the 158° azimuth sometimes quoted online is wrong. Compute the
+> great-circle bearing from YOUR location to GRAVES (47.351N, 5.515E) with
+> `bearing.py` — it prints your azimuth, distance, and dipole axis, and
+> explains how to orient the antenna.
 
 ---
 
@@ -45,8 +45,10 @@ only **1.05 m tip-to-tip** — it fits on a windowsill.
 
 1. **Position:** a window on the **south wall** of the house (any room; a south
    wall that faces the garden is ideal). Window glass costs only ~1–3 dB at VHF.
-2. **Orientation:** elements **horizontal**, running **NE–SW** — i.e. the dipole
-   lies along the your dipole axis line, so its broadside faces ~123° SE toward GRAVES.
+2. **Orientation:** elements **horizontal**, and the dipole's broadside (the
+   axis perpendicular to the elements) pointed toward GRAVES. Compute your
+   exact bearing with `bearing.py` (Step 6) — for most European observers the
+   aim is broadly south-easterly, but your QTH's numbers are what matter.
    A small compass app on your phone is all you need.
 3. **Height:** as high as practical — curtain rail, bookshelf top, wardrobe.
    Every metre helps, but a sill at 1 m works.
@@ -311,7 +313,7 @@ rates rise markedly.
 
 ## Roadmap
 
-- [x] Geometry verified (bearing your bearing, dipole your dipole axis)
+- [x] Geometry verified (great-circle bearing + dipole axis computed with `bearing.py`)
 - [x] RTL-SDR toolchain installed
 - [x] Detector + simulator + end-to-end test (6/6 seeds PASS)
 - [x] Real-time dashboard + remote access

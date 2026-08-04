@@ -4,5 +4,5 @@ After=graves-iss.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/YOUR_USERNAME/Starfall-Sentinel
-ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/Starfall-Sentinel/iss_sstv_decode.py --config /home/YOUR_USERNAME/Starfall-Sentinel/config.ini
+WorkingDirectory=/home/YOUR_USERNAME/graves-detector
+ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/graves-detector/iss_sstv_decode.py --config /home/YOUR_USERNAME/graves-detector/config.ini

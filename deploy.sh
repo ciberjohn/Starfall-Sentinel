@@ -38,16 +38,19 @@ python3 "$REPO_DIR/simulate.py" --test
 
 echo "==> Installing systemd user services"
 mkdir -p "$SYSTEMD_USER_DIR"
-for svc in graves-watch graves-dashboard graves-iss; do
+for svc in graves-watch graves-dashboard graves-iss graves-archive iss-sstv; do
     sed -e "s#/home/YOUR_USERNAME/graves-detector#$REPO_DIR#g" \
         "$REPO_DIR/$svc.service" > "$SYSTEMD_USER_DIR/$svc.service"
+done
+for tmr in graves-archive.timer iss-sstv.timer; do
+    cp "$REPO_DIR/$tmr" "$SYSTEMD_USER_DIR/$tmr"
 done
 
 echo "==> Enabling linger so services run without an active login session"
 loginctl enable-linger "$USER"
 
 systemctl --user daemon-reload
-systemctl --user enable graves-watch graves-dashboard graves-iss
+systemctl --user enable graves-watch graves-dashboard graves-iss graves-archive.timer iss-sstv.timer
 systemctl --user restart graves-watch graves-dashboard graves-iss
 
 if [ -d "$HOME/Dropbox" ]; then

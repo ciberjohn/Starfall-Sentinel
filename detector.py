@@ -114,7 +114,7 @@ def load_config(argv):
         "curve_archive_days": 730.0,
         "curve_archive_dir": None,
         "archive_only": False,
-        "name": "my-station-1",
+        "name": "starfall-1",
         "calibrate": False,
     }
     args = vars(build_parser().parse_args(argv))

@@ -44,9 +44,9 @@ parts in order. Each part ends with a verification step — don't skip them.
    meeting at the feedpoint.
 2. **Position:** a window on the **south wall** of the house. Any room works;
    the wall facing your garden is ideal.
-3. **Orientation:** dipole **horizontal**, elements running **NE–SW** (use a
-   phone compass app: the your dipole axis line). Its broadside then faces ~123° SE —
-   straight at GRAVES.
+3. **Orientation:** dipole **horizontal**, elements perpendicular to your
+   GRAVES bearing (compute it with `bearing.py` — Step 2.6). Its broadside
+   then faces the radar. Use a phone compass app to line it up.
 4. **Height:** as high as practical (curtain rail, bookshelf). A sill at 1 m
    still works.
 5. **Clearance:** 30+ cm from radiators, TVs, metal frames, foil-backed
@@ -213,7 +213,7 @@ webhook = https://discord.com/api/webhooks/1234567890/ABC...
 python3 detector.py --test-webhook --config config.ini
 ```
 
-✔ A ✅ **my-station-1** webhook test message appears in the channel. If not,
+✔ A ✅ **starfall-1** webhook test message appears in the channel. If not,
 re-check the URL and the permission.
 
 ### 3.4 Restart the detector with alerts
@@ -226,7 +226,7 @@ systemctl --user restart graves-watch        # if installed as a service
 Every ping posts:
 
 ```
-⚡ **my-station-1** PING @ 2026-08-03T06:32:07.363Z
+⚡ **starfall-1** PING @ 2026-08-03T06:32:07.363Z
 `1000 ms · +23.0 dB over floor · peak 66.1 dB`
 ```
 
@@ -386,7 +386,7 @@ archived — the IMO address is the live channel).
 ## Part 6 — Day-1 checklist (when hardware arrives)
 
 1. [ ] Dongle connector identified (SMA or MCX adapter)
-2. [ ] Dipole built (2 × 52 cm), horizontal, NE–SW, on the south window
+2. [ ] Dipole built (2 × 52 cm), horizontal, broadside aimed at GRAVES (bearing from `bearing.py`)
 3. [ ] `sudo apt install -y rtl-sdr` · `rtl_test` shows the device
 4. [ ] `python3 simulate.py --test` → PASS
 5. [ ] `python3 detector.py --calibrate` → GRAVES audible (tune ppm)
