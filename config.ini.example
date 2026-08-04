@@ -30,6 +30,12 @@ name = my-station-1
 ; curve_dir = data/ping_curves
 ; curve_pre_s = 1.0
 ; curve_post_s = 1.0
+; Curves stay live for 6 months, then move to monthly .tar.gz archives
+; (data/ping_curves_archive/) kept for 2 years total - consult old shapes
+; with: tar -xzf ping_curves_2026-08.tar.gz
+; curve_retention_days = 182
+; curve_archive_days = 730
+; curve_archive_dir = data/ping_curves_archive
 
 [sstv]
 ; ISS SSTV decoding (iss_sstv_decode.py). Defaults mirror the [detector]

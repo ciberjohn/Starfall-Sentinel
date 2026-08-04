@@ -22,11 +22,13 @@ import array
 import configparser
 import csv
 import datetime
+import io
 import json
 import math
 import os
 import subprocess
 import sys
+import tarfile
 import time
 from collections import deque
 
@@ -67,6 +69,12 @@ def build_parser():
                    help="pre-roll seconds of curve before the event (default 1.0)")
     p.add_argument("--curve-post-s", type=float, default=argparse.SUPPRESS,
                    help="post-roll seconds of curve after the event (default 1.0)")
+    p.add_argument("--curve-retention-days", type=float, default=argparse.SUPPRESS,
+                   help="keep curves live this long before archiving (default 182 = 6 months)")
+    p.add_argument("--curve-archive-days", type=float, default=argparse.SUPPRESS,
+                   help="keep archived curve tarballs this long (default 730 = 2 years)")
+    p.add_argument("--curve-archive-dir", default=argparse.SUPPRESS,
+                   help="archive dir for old curves (default <curve_dir>_archive)")
     p.add_argument("--test-webhook", action="store_true", default=argparse.SUPPRESS,
                    help="send a test message to the configured webhook and exit")
     p.add_argument("--webhook-long", action="store_true", default=argparse.SUPPRESS,
@@ -100,6 +108,9 @@ def load_config(argv):
         "curve_dir": None,
         "curve_pre_s": 1.0,
         "curve_post_s": 1.0,
+        "curve_retention_days": 182.0,
+        "curve_archive_days": 730.0,
+        "curve_archive_dir": None,
         "name": "my-station-1",
         "calibrate": False,
     }
@@ -125,7 +136,8 @@ def load_config(argv):
         cfg[k] = int(cfg[k])
     for k in ("threshold_db", "min_ms", "max_ms", "noise_history_s",
               "window_ms", "floor_percentile", "live_max_hours",
-              "curve_pre_s", "curve_post_s"):
+              "curve_pre_s", "curve_post_s",
+              "curve_retention_days", "curve_archive_days"):
         cfg[k] = float(cfg[k])
     cfg["webhook_long"] = str(cfg["webhook_long"]).lower() in ("1", "true", "yes")
     cfg["calibrate"] = str(cfg["calibrate"]).lower() in ("1", "true", "yes")
@@ -137,6 +149,8 @@ def load_config(argv):
     if cfg["curve_dir"] is None and cfg["log"] and not cfg["calibrate"]:
         cfg["curve_dir"] = os.path.join(
             os.path.dirname(os.path.abspath(cfg["log"])), "ping_curves")
+    if cfg["curve_archive_dir"] is None and cfg["curve_dir"]:
+        cfg["curve_archive_dir"] = cfg["curve_dir"] + "_archive"
     return cfg
 
 
@@ -189,6 +203,82 @@ def post_webhook(url, text, image_path=None):
     except Exception as exc:  # alerting must never kill the detector
         print(f"WARN: webhook failed: {exc}", file=sys.stderr)
         return False
+
+
+def archive_curves(curve_dir, archive_dir, retention_days, archive_days):
+    """Move curves older than retention_days into monthly .tar.gz archives,
+    and delete archive tarballs older than archive_days (2-year story).
+
+    Idempotent and crash-safe: the monthly tarball is rebuilt from its
+    existing members plus the newly-expired CSVs, then the source CSVs are
+    deleted - a failed run leaves everything in place for the next sweep.
+    Curves cost ~1.5 KB each, so a month is small; rebuilding the tarball
+    is cheap and avoids gzip-append pitfalls."""
+    if not os.path.isdir(curve_dir) or retention_days <= 0:
+        return 0
+    os.makedirs(archive_dir, exist_ok=True)
+    now = time.time()
+    cutoff = now - retention_days * 86400.0
+    prune_cutoff = now - archive_days * 86400.0
+
+    expired = {}  # month_key "YYYY-MM" -> [csv paths]
+    for name in sorted(os.listdir(curve_dir)):
+        if not name.endswith(".csv"):
+            continue
+        path = os.path.join(curve_dir, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                month = name[:4] + "-" + name[4:6] if len(name) >= 6 else "unknown"
+                expired.setdefault(month, []).append(path)
+        except OSError:
+            continue
+    if not expired:
+        return 0
+
+    archived = 0
+    for month, paths in expired.items():
+        tar_path = os.path.join(archive_dir, f"ping_curves_{month}.tar.gz")
+        members = {}
+        if os.path.exists(tar_path):
+            try:
+                with tarfile.open(tar_path, "r:gz") as tf:
+                    for m in tf.getmembers():
+                        f = tf.extractfile(m)
+                        if f is not None:
+                            members[m.name] = f.read()
+            except tarfile.TarError:
+                members = {}  # corrupt tarball: rebuild from scratch
+        for p in paths:
+            try:
+                with open(p, "rb") as f:
+                    members[os.path.basename(p)] = f.read()
+            except OSError:
+                continue
+        with tarfile.open(tar_path, "w:gz") as tf:
+            for name, data in sorted(members.items()):
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                info.mtime = int(now)
+                tf.addfile(info, io.BytesIO(data))
+        for p in paths:
+            try:
+                os.remove(p)
+                archived += 1
+            except OSError:
+                pass
+
+    pruned = 0
+    for name in os.listdir(archive_dir):
+        if not name.endswith(".tar.gz"):
+            continue
+        path = os.path.join(archive_dir, name)
+        try:
+            if os.path.getmtime(path) < prune_cutoff:
+                os.remove(path)
+                pruned += 1
+        except OSError:
+            pass
+    return archived
 
 
 def trim_live_csv(path, max_hours):
@@ -270,8 +360,10 @@ def run(cfg):
     live_w = None
     next_live = None
     next_trim = None
+    next_archive = None
     live_path = None
     TRIM_INTERVAL_S = 1800  # check every 30 min; the file is small, no rush
+    ARCHIVE_INTERVAL_S = 21600  # archive sweep every 6 h
     if cfg["live_out"] and not cfg["calibrate"]:
         live_path = os.path.abspath(cfg["live_out"])
         os.makedirs(os.path.dirname(live_path), exist_ok=True)
@@ -288,6 +380,13 @@ def run(cfg):
               if cfg["live_max_hours"] > 0 else
               f"[graves-detector] live samples to {live_path} (unbounded)",
               flush=True)
+
+    if cfg["curve_dir"] and not cfg["calibrate"]:
+        next_archive = time.time() + ARCHIVE_INTERVAL_S
+        print(f"[graves-detector] ping curves to {cfg['curve_dir']} "
+              f"(live {cfg['curve_retention_days']:.0f}d, archive "
+              f"{cfg['curve_archive_days']:.0f}d to "
+              f"{cfg['curve_archive_dir']})", flush=True)
 
     # detection state
     active = False
@@ -403,6 +502,20 @@ def run(cfg):
                         live_f = open(live_path, "a", newline="")
                         live_w = csv.writer(live_f)
                     next_trim = time.time() + TRIM_INTERVAL_S
+
+                if next_archive is not None and time.time() >= next_archive:
+                    try:
+                        n = archive_curves(cfg["curve_dir"],
+                                           cfg["curve_archive_dir"],
+                                           cfg["curve_retention_days"],
+                                           cfg["curve_archive_days"])
+                        if n:
+                            print(f"[graves-detector] archived {n} curve(s)",
+                                  flush=True)
+                    except Exception as exc:  # never let housekeeping kill us
+                        print(f"WARN: curve archive sweep failed: {exc}",
+                              file=sys.stderr)
+                    next_archive = time.time() + ARCHIVE_INTERVAL_S
 
                 if cfg["calibrate"]:
                     if idx % max(1, int(cfg["sample_rate"] / W)) == 0:
