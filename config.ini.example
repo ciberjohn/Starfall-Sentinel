@@ -24,6 +24,27 @@ name = my-station-1
 ; webhook = https://discord.com/api/webhooks/xxxxxxxx/yyyyyyyy
 ; webhook_long = false
 
+[sstv]
+; ISS SSTV decoding (iss_sstv_decode.py). Defaults mirror the [detector]
+; paths; only override if you keep data elsewhere.
+; clips_dir = data/iss_clips
+; out_dir = data/iss_sstv
+
+[email]
+; Used by imo_report.py (citizen-science submissions). Same Gmail app
+; password as Uhura's comm station - gitignored, never commit.
+; smtp_host = smtp.gmail.com
+; smtp_port = 587
+; user =
+; password =
+
+[imo]
+; Recipient + observer identity for the IMO-style echo-count report. Set
+; `to` to the IMO Radio Commission / ERAC address you coordinate with.
+; to =
+; observer = your-name
+; station_name = Starfall Sentinel
+
 [station]
 ; Used only locally by dashboard.py to compute the bearing/distance shown
 ; in the compass quadrant - run `python3 bearing.py --from "lat,lon"` to get
@@ -33,7 +54,7 @@ name = my-station-1
 lat = 0.0
 lon = 0.0
 ; Freeform text shown in the dashboard header - keep it region-level only
-; (e.g. "Pacific Northwest, USA", "Bavaria, Germany") if this page will ever be
+; (e.g. "your region, UK", "Ontario, Canada") if this page will ever be
 ; public or streamed. Never a postcode/zip or house-level detail.
 region = set your region here
 

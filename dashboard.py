@@ -13,6 +13,12 @@ Endpoints:
                      + next ISS pass
   GET /api/iss-hits  recent ISS audio captures (last 20) + clip URLs
   GET /iss-clips/*   WAV clips saved by iss_recorder.py
+  GET /api/rate      ping-rate monitor: hourly PING counts (last 48h) + totals
+  GET /api/sporadic-e  LONG events (sporadic-E / interference catalog)
+  GET /sporadic-e    propagation log page (rate chart + LONG events)
+  GET /api/sstv      decoded ISS SSTV image list
+  GET /sstv-images/* decoded SSTV PNGs
+  GET /iss-sstv      ISS SSTV gallery page
   GET /api/health    JSON status for external monitors
   GET /status        plain-text health line for cron/scripts
 
@@ -416,7 +422,7 @@ footer a{color:var(--series-level)}
   <div class="headline">
     <h1>STARFALL SENTINEL</h1>
     <!-- __REGION__ comes from config.ini's [station] section. Keep it
-         region-level only (e.g. "Pacific Northwest, USA"), never a postcode or
+         region-level only (e.g. "your region, UK"), never a postcode or
          house-level detail: this page runs 24/7 on a public stream, and
          anything more precise permanently doxxes the residence. -->
     <div class="subtitle">GRAVES meteor-scatter watch · __REGION__ · 143.050 MHz forward-scatter</div>
@@ -505,6 +511,22 @@ footer a{color:var(--series-level)}
       <div class="quad-sub">listen: 145.800 MHz FM (voice/SSTV) · 145.825 FM (APRS)</div>
     </div>
   </div>
+  <div class="panel quad" id="quad-rate">
+    <div class="quad-label">Ping Rate</div>
+    <div class="quad-body">
+      <div><span class="quad-num" id="rate-today" style="font-size:22px">--</span><span class="quad-unit">today</span></div>
+      <div class="quad-desc" id="rate-detail">loading…</div>
+      <div class="quad-sub" id="rate-last">last hour -- · last 48h --</div>
+    </div>
+  </div>
+  <div class="panel quad" id="quad-sporadice">
+    <div class="quad-label">Sporadic-E / LONG</div>
+    <div class="quad-body">
+      <div><span class="quad-num" id="se-count" style="font-size:22px">--</span><span class="quad-unit">events</span></div>
+      <div class="quad-desc" id="se-detail">long-duration bursts (not meteors)</div>
+      <div class="quad-sub" id="se-last">catalog at /sporadic-e</div>
+    </div>
+  </div>
 </div>
 
 <h2>How to read this</h2>
@@ -541,8 +563,9 @@ saved here.</p>
 </div>
 
 <footer>
-  Starfall Sentinel — GRAVES meteor-scatter station · source &amp; setup guide on
-  <a href="https://github.com/ciberjohn/Starfall-Sentinel" target="_blank" rel="noopener">GitHub</a>
+  Starfall Sentinel — GRAVES meteor-scatter station · build your own from
+  <a href="https://github.com/ciberjohn/Starfall-Sentinel" target="_blank" rel="noopener">the public repo on GitHub</a>
+  · <a href="/sporadic-e">Propagation log</a> · <a href="/iss-sstv">ISS SSTV gallery</a>
 </footer>
 </div>
 <script>
@@ -815,6 +838,12 @@ const SHOWER_NAME = document.getElementById('shower-name');
 const SHOWER_DETAIL = document.getElementById('shower-detail');
 const ISS_COUNTDOWN = document.getElementById('iss-countdown');
 const ISS_DETAIL = document.getElementById('iss-detail');
+const RATE_TODAY = document.getElementById('rate-today');
+const RATE_DETAIL = document.getElementById('rate-detail');
+const RATE_LAST = document.getElementById('rate-last');
+const SE_COUNT = document.getElementById('se-count');
+const SE_DETAIL = document.getElementById('se-detail');
+const SE_LAST = document.getElementById('se-last');
 
 async function loadQuadrants() {
   let d;
@@ -871,16 +900,121 @@ async function loadQuadrants() {
   }
 }
 
+async function loadRate() {
+  let d;
+  try { d = await (await fetch('/api/rate')).json(); } catch (e) { return; }
+  RATE_TODAY.textContent = d.today;
+  RATE_DETAIL.textContent = d.today > 0 ? 'meteor echoes detected today' : 'no echoes yet today';
+  RATE_LAST.textContent = `last hour ${d.last_hour} · last 48h ${d.last_48h}`;
+}
+
+async function loadSporadicE() {
+  let d;
+  try { d = await (await fetch('/api/sporadic-e')).json(); } catch (e) { return; }
+  const n = d.events.length;
+  SE_COUNT.textContent = n;
+  SE_DETAIL.textContent = n > 0 ? 'long-duration bursts logged' : 'no LONG events logged';
+  SE_LAST.textContent = n > 0 ? `last: ${fmtUTC(new Date(d.events[0].utc).getTime())}` : 'catalog at /sporadic-e';
+}
+
 setInterval(loadLive, 1000);
 setInterval(loadEvents, 5000);
 setInterval(updateStardate, 1000);
 setInterval(loadQuadrants, 60000);
 setInterval(loadIssHits, 30000);
+setInterval(loadRate, 60000);
+setInterval(loadSporadicE, 60000);
 loadLive();
 loadEvents();
 updateStardate();
 loadQuadrants();
 loadIssHits();
+loadRate();
+loadSporadicE();
+</script>
+</body>
+</html>
+"""
+
+SPORADIC_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Propagation Log — Starfall Sentinel</title>
+<link rel="stylesheet" href="/static/uPlot.min.css">
+<script src="/static/uPlot.iife.min.js"></script>
+<style>
+ body{background:#0d0d0d;color:#c3c2b7;font-family:system-ui,sans-serif;margin:0;padding:18px}
+ h1{font-size:20px;letter-spacing:3px;color:#fff;margin:0 0 4px}
+ .sub{color:#898781;font-size:12px;margin-bottom:12px}
+ a{color:#3987e5}
+ .panel{background:#1a1a19;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px;margin-bottom:12px}
+ table{width:100%;border-collapse:collapse;font-size:12.5px}
+ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #2c2c2a}
+ th{color:#898781;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+ .num{font-family:ui-monospace,Menlo,monospace}
+ .empty{color:#898781}
+</style>
+</head>
+<body>
+<h1>PROPAGATION LOG</h1>
+<div class="sub">Ping rate (PING echoes per UTC hour, last 48h) and LONG events — sporadic-E, aircraft, or interference. <a href="/">← back to the dashboard</a></div>
+<div class="panel"><div id="chart"></div></div>
+<div class="panel"><table id="events"><thead><tr><th>UTC</th><th>Duration</th><th>Peak +dB</th><th>Level</th><th>Floor</th></tr></thead><tbody><tr><td colspan="5" class="empty">loading…</td></tr></tbody></table></div>
+<script>
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmt(ms){const d=new Date(ms);return String(d.getUTCDate()).padStart(2,'0')+' '+MONTHS[d.getUTCMonth()]+' '+d.getUTCFullYear()+' '+String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')+':'+String(d.getUTCSeconds()).padStart(2,'0')+' UTC';}
+let plot=null;
+async function loadRate(){
+  const d=await (await fetch('/api/rate')).json();
+  const times=d.series.map(s=>s[0]/1000);
+  const counts=d.series.map(s=>s.count);
+  if(!plot){plot=new uPlot({width:Math.min(window.innerWidth-60,1160),height:220,scales:{x:{time:true},y:{auto:true}},series:[{}, {label:'echoes/hour',stroke:'#3987e5',width:2,fill:'rgba(57,135,229,.15)'}],axes:[{stroke:'#898781',grid:{stroke:'#2c2c2a'}},{stroke:'#898781',grid:{stroke:'#2c2c2a'}}]},[times,counts],document.getElementById('chart'));}
+  else{plot.setData([times,counts]);}
+}
+async function loadEvents(){
+  const d=await (await fetch('/api/sporadic-e')).json();
+  const tb=document.querySelector('#events tbody');
+  if(!d.events.length){tb.innerHTML='<tr><td colspan="5" class="empty">no LONG events logged</td></tr>';return;}
+  tb.innerHTML=d.events.map(e=>'<tr><td class="num">'+fmt(new Date(e.utc).getTime())+'</td><td class="num">'+e.duration_ms+' ms</td><td class="num">+'+e.peak_db_over_floor+' dB</td><td class="num">'+e.peak_level_db+' dB</td><td class="num">'+e.floor_db+' dB</td></tr>').join('');
+}
+setInterval(loadRate,60000);setInterval(loadEvents,30000);loadRate();loadEvents();
+</script>
+</body>
+</html>
+"""
+
+SSTV_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ISS SSTV Gallery — Starfall Sentinel</title>
+<style>
+ body{background:#0d0d0d;color:#c3c2b7;font-family:system-ui,sans-serif;margin:0;padding:18px}
+ h1{font-size:20px;letter-spacing:3px;color:#fff;margin:0 0 4px}
+ .sub{color:#898781;font-size:12px;margin-bottom:12px}
+ a{color:#3987e5}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+ .card{background:#1a1a19;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:10px}
+ .card img{width:100%;border-radius:4px;display:block}
+ .cap{font-size:11.5px;color:#898781;margin-top:6px;font-family:ui-monospace,Menlo,monospace}
+ .empty{color:#898781;font-size:13px}
+</style>
+</head>
+<body>
+<h1>ISS SSTV GALLERY</h1>
+<div class="sub">Images decoded from ISS audio clips (Robot 36 / Martin / Scottie SSTV on 145.800 MHz). <a href="/">← back to the dashboard</a></div>
+<div class="grid" id="grid"><div class="empty">no decoded images yet — they appear here after each ISS pass</div></div>
+<script>
+async function load(){
+  const d=await (await fetch('/api/sstv')).json();
+  const g=document.getElementById('grid');
+  if(!d.images.length){g.innerHTML='<div class="empty">no decoded images yet</div>';return;}
+  g.innerHTML=d.images.map(i=>'<div class="card"><img src="'+i.image_url+'" alt="SSTV '+i.utc+'"><div class="cap">'+i.utc+' · '+i.mode+'</div></div>').join('');
+}
+setInterval(load,60000);load();
 </script>
 </body>
 </html>
@@ -953,6 +1087,73 @@ def pings_payload(data_dir):
         if len(pings) >= PINGS_N:
             break
     return {"pings": pings}
+
+
+def rate_payload(data_dir):
+    """Ping-rate monitor: hourly PING counts for the last 48h + totals
+    (UTC hours), for the rate quadrant and the propagation log page."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    hours = {}
+    path = os.path.join(data_dir, "pings.csv")
+    for ln in tail_lines(path, 200000):
+        row = next(csv.reader([ln]))
+        if len(row) >= 8 and row[0].startswith("20") and row[7] == "PING":
+            try:
+                dt = datetime.datetime.strptime(
+                    row[0][:19], "%Y-%m-%dT%H:%M:%S"
+                ).replace(tzinfo=datetime.timezone.utc)
+            except ValueError:
+                continue
+            if (now - dt).total_seconds() <= 48 * 3600:
+                key = dt.replace(minute=0, second=0, microsecond=0)
+                hours[key] = hours.get(key, 0) + 1
+    series = [{"t_ms": int(k.timestamp() * 1000), "count": v}
+              for k, v in sorted(hours.items())]
+    today = now.strftime("%Y-%m-%d")
+    today_count = sum(v for k, v in hours.items()
+                      if k.strftime("%Y-%m-%d") == today)
+    last_hour = sum(v for k, v in hours.items()
+                    if (now - k).total_seconds() <= 3600)
+    return {
+        "series": series,
+        "today": today_count,
+        "last_hour": last_hour,
+        "last_48h": sum(hours.values()),
+        "utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def sporadic_e_payload(data_dir, limit=100):
+    """LONG events - the sporadic-E / aircraft / interference catalog."""
+    events = []
+    path = os.path.join(data_dir, "pings.csv")
+    for ln in reversed(tail_lines(path, 50000)):
+        row = next(csv.reader([ln]))
+        if len(row) >= 8 and row[0].startswith("20") and row[7] == "LONG":
+            events.append({
+                "utc": row[0], "local": row[1], "duration_ms": row[3],
+                "peak_db_over_floor": row[4], "peak_level_db": row[5],
+                "floor_db": row[6],
+            })
+        if len(events) >= limit:
+            break
+    return {"events": events}
+
+
+def sstv_payload(data_dir, limit=24):
+    """Decoded ISS SSTV images (newest first)."""
+    imgs = []
+    path = os.path.join(data_dir, "iss_sstv.csv")
+    for ln in reversed(tail_lines(path, 500)):
+        row = next(csv.reader([ln]))
+        if len(row) >= 4 and row[0].startswith("20"):
+            imgs.append({
+                "utc": row[0], "clip": row[1], "mode": row[2],
+                "image": row[3], "image_url": f"/sstv-images/{row[3]}",
+            })
+        if len(imgs) >= limit:
+            break
+    return {"images": imgs}
 
 
 def iss_hits_payload(data_dir):
@@ -1036,6 +1237,23 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
         elif route == "/api/quadrants":
             self._send_json(quadrants_payload())
+        elif route == "/api/rate":
+            self._send_json(rate_payload(self.server.data_dir))
+        elif route == "/api/sporadic-e":
+            self._send_json(sporadic_e_payload(self.server.data_dir))
+        elif route == "/sporadic-e":
+            self._send(200, SPORADIC_PAGE.encode(), "text/html; charset=utf-8")
+        elif route == "/api/sstv":
+            self._send_json(sstv_payload(self.server.data_dir))
+        elif route == "/iss-sstv":
+            self._send(200, SSTV_PAGE.encode(), "text/html; charset=utf-8")
+        elif route.startswith("/sstv-images/"):
+            fname = os.path.basename(route[len("/sstv-images/"):])
+            if fname.endswith(".png"):
+                self._send_file(os.path.join(self.server.data_dir, "iss_sstv", fname),
+                                "image/png")
+            else:
+                self.send_error(404)
         elif route == "/api/health":
             self._send_json(health_payload(self.server.data_dir))
         elif route == "/status":
