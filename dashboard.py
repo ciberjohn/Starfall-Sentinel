@@ -831,11 +831,12 @@ async function loadEvents() {
         }
         return d;
       };
-      // display-only moving average (peak-preserving) so the echo envelope
-      // reads smoothly; stats are still computed on the raw samples
-      const smoothData = arr => {
-        if (arr.length < 5) return arr;
-        const out = arr.slice(), win = 2;
+      // display-only moving average (peak-preserving); window scales with
+      // the sample interval so 100 Hz curves smooth like 20 Hz ones
+      const smoothData = (arr, dt) => {
+        const w = Math.max(3, Math.round(5 * 50 / (dt || 50)));
+        if (arr.length < w + 1) return arr;
+        const out = arr.slice(), win = Math.floor(w / 2);
         for (let i = 0; i < arr.length; i++) {
           let s = 0, c = 0;
           for (let j = Math.max(0, i - win); j <= Math.min(arr.length - 1, i + win); j++) { s += arr[j]; c++; }
@@ -845,8 +846,10 @@ async function loadEvents() {
         out[idx] = Math.max(out[idx], pk);
         return out;
       };
+      const dts = data.t_ms.slice(1).map((t, i) => t - data.t_ms[i]).sort((a, b) => a - b);
+      const dt = dts.length ? dts[Math.floor(dts.length / 2)] : 50;
       const fp = smooth(data.floor.map((d, i) => [X(data.t_ms[i]), Y(d)]));
-      const sp = smooth(smoothData(data.db).map((d, i) => [X(data.t_ms[i]), Y(d)]));
+      const sp = smooth(smoothData(data.db, dt).map((d, i) => [X(data.t_ms[i]), Y(d)]));
       cell.innerHTML = '<svg width="100%" viewBox="0 0 ' + W2 + ' ' + H2 + '" style="background:#0e0e0e;border-radius:4px">' +
         '<rect width="' + W2 + '" height="' + H2 + '" fill="#0e0e0e"/>' +
         '<path d="' + fp + '" stroke="#999" stroke-width="1" fill="none" stroke-dasharray="4 4" opacity="0.7"/>' +
@@ -1056,10 +1059,13 @@ async function draw(c){
     return d;
   }
   // display-only moving average (peak-preserving) so the echo envelope
-  // reads smoothly; stats are still computed on the raw samples
-  function smoothData(arr){
-    if(arr.length<5) return arr;
-    const out=arr.slice(), win=2;
+  // reads smoothly; window scales with the sample interval (dt ms) so a
+  // 100 Hz curve gets the same ~250 ms smoothing as a 20 Hz one. Stats
+  // are still computed on the raw samples.
+  function smoothData(arr, dt){
+    const w=Math.max(3, Math.round(5*50/(dt||50)));
+    if(arr.length<w+1) return arr;
+    const out=arr.slice(), win=Math.floor(w/2);
     for(let i=0;i<arr.length;i++){
       let s=0,c=0;
       for(let j=Math.max(0,i-win);j<=Math.min(arr.length-1,i+win);j++){s+=arr[j];c++;}
@@ -1076,8 +1082,10 @@ async function draw(c){
   if(hi-lo<4){hi=lo+4;}
   const t0=data.t_ms[0], t1=data.t_ms[data.t_ms.length-1]||t0+1;
   const X=t=>8+(t-t0)/(t1-t0)*(W-16), Y=d=>8+(hi-d)/(hi-lo)*(H-16);
+  const dts=data.t_ms.slice(1).map((t,i)=>t-data.t_ms[i]).sort((a,b)=>a-b);
+  const dt=dts.length?dts[Math.floor(dts.length/2)]:50;
   const floorPath=smoothPath(data.floor.map((d,i)=>[X(data.t_ms[i]),Y(d)]));
-  const sigPath=smoothPath(smoothData(data.db).map((d,i)=>[X(data.t_ms[i]),Y(d)]));
+  const sigPath=smoothPath(smoothData(data.db,dt).map((d,i)=>[X(data.t_ms[i]),Y(d)]));
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
   svg.innerHTML='<rect width="'+W+'" height="'+H+'" fill="#0e0e0e"/>'+
     '<path d="'+floorPath+'" stroke="#999" stroke-width="1" fill="none" stroke-dasharray="4 4" opacity="0.7"/>'+
@@ -1374,14 +1382,28 @@ def _curve_stats(ts, dbs, floors):
             slope = (n * sxy - sx * sy) / denom
             if slope < -0.01:
                 decay_s = round(-1.0 / slope, 2)
-    # oscillation: sign changes of (db - 3-window smoothed), swings > 0.6 dB
+    # oscillation: sign changes of (db - smoothed), swings > swing dB.
+    # Rate-aware: curve capture is decoupled (curve_hz, e.g. 100 Hz = 10 ms
+    # samples) so the smoothing window and the swing threshold scale with the
+    # median sample interval (shorter windows -> noisier per-sample dB).
+    dt = 50.0
+    if len(ts) >= 2:
+        dts = sorted(ts[i + 1] - ts[i] for i in range(len(ts) - 1))
+        dt = dts[len(dts) // 2]
+        if dt <= 0:
+            dt = 50.0
+    scale = dt / 50.0
+    sm_win = max(3, int(round(3.0 / scale)))
+    swing = 0.6 * math.sqrt(1.0 / scale) if scale > 0 else 0.6
     sm = dbs[:]
     for i in range(1, len(dbs) - 1):
-        sm[i] = (dbs[i - 1] + dbs[i] + dbs[i + 1]) / 3.0
+        lo_s = max(0, i - sm_win // 2)
+        hi_s = min(len(dbs) - 1, i + sm_win // 2)
+        sm[i] = sum(dbs[lo_s:hi_s + 1]) / (hi_s - lo_s + 1)
     osc, prev_sign = 0, 0
     for i in range(1, len(dbs)):
         d = dbs[i] - sm[i]
-        if abs(d) < 0.6:
+        if abs(d) < swing:
             continue
         s = 1 if d > 0 else -1
         if prev_sign and s != prev_sign:

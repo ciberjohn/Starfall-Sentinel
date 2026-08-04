@@ -36,6 +36,9 @@ name = my-station-1
 ; curve_post_s = 1.0
 ; end_margin_db = 3.0
 ; hangover_windows = 10
+; Curve capture rate (Hz), decoupled from the detection windows: 100 Hz =
+; 10 ms resolution echo shapes; 0 = same rate as detection (~20 Hz).
+; curve_hz = 100
 ; Curves stay live for 6 months, then move to monthly .tar.gz archives
 ; (data/ping_curves_archive/) kept for 2 years total - consult old shapes
 ; with: tar -xzf ping_curves_2026-08.tar.gz

@@ -54,6 +54,9 @@ def build_parser():
     p.add_argument("--hangover-windows", type=int, default=argparse.SUPPRESS,
                    help="consecutive quiet windows below end-margin before "
                         "the event is closed (default 10 = 500 ms at 20 Hz)")
+    p.add_argument("--curve-hz", type=int, default=argparse.SUPPRESS,
+                   help="curve capture rate, decoupled from the detection "
+                        "windows (default 100; 0 = same rate as detection)")
     p.add_argument("--min-ms", type=float, default=argparse.SUPPRESS, help="min ping duration (ms)")
     p.add_argument("--max-ms", type=float, default=argparse.SUPPRESS,
                    help="events longer than this are flagged LONG (sporadic-E / interference)")
@@ -103,6 +106,7 @@ def load_config(argv):
         "threshold_db": 10.0,
         "end_margin_db": 3.0,
         "hangover_windows": 10,
+        "curve_hz": 100,
         "min_ms": 80.0,
         "max_ms": 8000.0,
         "noise_history_s": 25.0,
@@ -150,7 +154,7 @@ def load_config(argv):
               "curve_pre_s", "curve_post_s",
               "end_margin_db"):
         cfg[k] = float(cfg[k])
-    for k in ("hangover_windows", "curve_retention_days",
+    for k in ("hangover_windows", "curve_hz", "curve_retention_days",
               "curve_archive_days"):
         cfg[k] = int(cfg[k])
     cfg["webhook_long"] = str(cfg["webhook_long"]).lower() in ("1", "true", "yes")
@@ -348,10 +352,13 @@ def run(cfg):
         stream = sys.stdin.buffer
 
     floor_hist = deque(maxlen=hist_windows)
-    # per-ping waveform capture: ring buffer of (idx, db, floor) at window
-    # rate (~20 Hz); keeps pre/post roll + up to 30 s of the event itself
+    # per-ping waveform capture: ring buffer of (sub_idx, db, floor) at the
+    # curve rate (curve_hz, default 100 Hz) - decoupled from the detection
+    # windows so echo shapes are captured with real temporal resolution;
+    # keeps pre/post roll + up to 30 s of the event itself
+    nsub = max(1, int(round(cfg["curve_hz"] * cfg["window_ms"] / 1000.0)))
     curve_keep = int((cfg["curve_pre_s"] + cfg["curve_post_s"] + 30.0)
-                     * 1000.0 / max(1.0, cfg["window_ms"])) + 10
+                     * 1000.0 / max(1.0, cfg["window_ms"])) * nsub + 10
     curve_buf = deque(maxlen=max(50, curve_keep))
     buf = []
 
@@ -430,8 +437,8 @@ def run(cfg):
         if cfg["curve_dir"] and curve_buf:
             pre = int(cfg["curve_pre_s"] * 1000.0 / cfg["window_ms"])
             post = int(cfg["curve_post_s"] * 1000.0 / cfg["window_ms"])
-            lo = max(0, start_idx - pre)
-            hi = last_active_idx + post
+            lo = max(0, (start_idx - pre) * nsub)
+            hi = (last_active_idx + post) * nsub
             rows = [e for e in curve_buf if lo <= e[0] <= hi]
             if len(rows) >= 5:
                 os.makedirs(cfg["curve_dir"], exist_ok=True)
@@ -442,7 +449,7 @@ def run(cfg):
                     cw = csv.writer(cf)
                     cw.writerow(["t_ms", "db", "floor"])
                     for (i, d, fl) in rows:
-                        cw.writerow([int(i * cfg["window_ms"]),
+                        cw.writerow([int(i * cfg["window_ms"] / nsub),
                                      f"{d:.2f}", f"{fl:.2f}"])
 
         row = [utc_now(), local_now(), int(start_idx * cfg["window_ms"]),
@@ -496,7 +503,17 @@ def run(cfg):
                 else:
                     floor = db
                 floor_hist.append(db)
-                curve_buf.append((idx, db, floor))
+                if nsub > 1:
+                    sub_w = max(1, W // nsub)
+                    for j in range(nsub):
+                        s0 = j * sub_w
+                        s1 = W if j == nsub - 1 else (j + 1) * sub_w
+                        chunk = win[s0:s1]
+                        if chunk:
+                            curve_buf.append((idx * nsub + j,
+                                              window_db(chunk), floor))
+                else:
+                    curve_buf.append((idx, db, floor))
                 above = db - floor
 
                 if live_w is not None and time.time() >= next_live:

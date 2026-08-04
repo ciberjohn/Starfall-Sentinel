@@ -39,11 +39,18 @@ def parse_curve(path):
     return ts, dbs, floors
 
 
-def smooth_vals(vals, w=5):
+def smooth_vals(ts, vals):
     """Display-only moving average (peak-preserving) so echo envelopes read
-    smoothly. Stats are never computed from this."""
+    smoothly. The window scales with the median sample interval so a 100 Hz
+    curve gets the same ~250 ms smoothing as a legacy 20 Hz one. Stats are
+    never computed from this."""
     if len(vals) < 3:
         return vals
+    dt = 50.0
+    if len(ts) >= 2:
+        dts = sorted(ts[i + 1] - ts[i] for i in range(len(ts) - 1))
+        dt = dts[len(dts) // 2] or 50.0
+    w = max(3, int(round(5 * 50.0 / dt)))
     out = vals[:]
     win = w // 2
     for i in range(len(vals)):
@@ -153,7 +160,7 @@ def plot_curve(csv_path, title="", out_path=None, width=640, height=240):
         prev = (x, y)
 
     # signal polyline (Catmull-Rom smoothed so echoes look curved)
-    dbs_disp = smooth_vals(dbs)
+    dbs_disp = smooth_vals(ts, dbs)
     prev = None
     for (t, d) in spline_samples(ts, dbs_disp):
         x, y = tx(t), ty(d)
