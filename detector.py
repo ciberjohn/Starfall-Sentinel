@@ -113,6 +113,7 @@ def load_config(argv):
         "curve_retention_days": 182.0,
         "curve_archive_days": 730.0,
         "curve_archive_dir": None,
+        "archive_only": False,
         "name": "my-station-1",
         "calibrate": False,
     }
