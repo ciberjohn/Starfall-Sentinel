@@ -945,8 +945,10 @@ async function loadRate() {
 // Visibility-aware scheduler: skip ticks while the tab is hidden (or the
 // OBS browser source is off-screen) and refresh immediately on visible.
 // Keeps the 24/7 stream alive while slashing CPU on a 1 Hz redraw loop.
+// Append ?live=1 to the URL to disable the pause (for OBS Browser Source).
+const LIVE_MODE = new URLSearchParams(location.search).has("live");
 function visLoop(fn, ms) {
-  function tick() { if (!document.hidden) fn(); }
+  function tick() { if (LIVE_MODE || !document.hidden) fn(); }
   tick();
   setInterval(tick, ms);
   document.addEventListener("visibilitychange", function () {

@@ -223,16 +223,9 @@ almost nothing.
 > Streaming tip: if you put the dashboard on Twitch/YouTube 24/7, use a
 > hardware encoder (Intel QSV/VAAPI, or NVENC on NVIDIA) instead of x264 —
 > it cuts encoder CPU by ~95% and keeps a laptop's fans quiet.
-put the station on a public stream — dark-themed, self-explanatory for
-viewers with no context, a light Star Trek/LCARS visual touch, a synthesized
-ambient hum + a distinct chime on real meteor pings (mute toggle in the
-header), four live "sensor quadrants" (solar weather, the next/active meteor
-shower, a compass locked to the true bearing toward GRAVES, and the next ISS
-pass with rise/max/set time, azimuth, elevation, duration), and — for passes
-that clear a configurable elevation bar — an "ISS Audio Log": the dongle
-briefly retunes off GRAVES to listen on the ISS's own frequencies, and any
-above-floor audio it catches (voice, SSTV, APRS packets) is saved as a WAV
-clip and playable right on the page.
+> OBS Browser Source: add `?live=1` to the source URL so the page never
+> pauses (without it, the page throttles whenever the browser considers
+> the tab hidden).
 
 The chart library is bundled, so the core station (detector, chart, alerts)
 needs **no internet** as before. Two quadrants are the exception: solar
