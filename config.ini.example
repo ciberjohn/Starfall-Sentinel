@@ -44,8 +44,8 @@ name = my-station-1
 ; out_dir = data/iss_sstv
 
 [email]
-; Used by imo_report.py (citizen-science submissions). Same Gmail app
-; password as Uhura's comm station - gitignored, never commit.
+; Used by imo_report.py (citizen-science submissions). App password for the
+; sending account - gitignored, never commit.
 ; smtp_host = smtp.gmail.com
 ; smtp_port = 587
 ; user =
@@ -67,8 +67,11 @@ name = my-station-1
 ; so a public stream can't be used to reverse-geolocate your station.
 lat = 0.0
 lon = 0.0
+; SSH access to the station host (used by imo_report.py --pull-from-vostro).
+; ssh_host = user@station-host
+; ssh_repo = ~/path/to/station-repo
 ; Freeform text shown in the dashboard header - keep it region-level only
-; (e.g. "your region, UK", "Ontario, Canada") if this page will ever be
+; (e.g. "Example Region, Country", "Ontario, Canada") if this page will ever be
 ; public or streamed. Never a postcode/zip or house-level detail.
 region = set your region here
 

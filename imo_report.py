@@ -3,8 +3,7 @@
 
 Citizen-science submission: builds an IMO-inspired hourly echo-count report
 for a UTC day from the GRAVES ping log and emails it to the configured IMO
-address via SMTP (Gmail app password from config.ini [email] - the same
-account Uhura's comm station uses, [redacted]).
+address via SMTP (Gmail app password from config.ini [email]).
 
 This is a "forward-scatter echo counts" report in the spirit of the IMO's
 radio-meteor campaigns. The exact recipient/format guidance changes over
@@ -27,8 +26,8 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VOSTRO = "station-host"
-VOSTRO_REPO = "~/Starfall-Sentinel"
+# The station host is config-driven ([station] ssh_host / ssh_repo) so this
+# public repo carries no real hostnames or repo paths.
 
 
 def build_parser():
@@ -43,6 +42,10 @@ def build_parser():
     p.add_argument("--send", action="store_true",
                    help="actually email the report (default: build only)")
     p.add_argument("--out", default=None, help="write the report text here")
+    p.add_argument("--station-host", default=None,
+                   help="SSH host of the station (default: config [station] ssh_host)")
+    p.add_argument("--station-repo", default=None,
+                   help="repo path on the station (default: config [station] ssh_repo)")
     return p
 
 
@@ -57,9 +60,9 @@ def load_ini(config_path):
     return cfg
 
 
-def fetch_pings_from_vostro():
-    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", VOSTRO,
-           f"cat {VOSTRO_REPO}/data/pings.csv"]
+def fetch_pings_from_vostro(host, repo):
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host,
+           f"cat {repo}/data/pings.csv"]
     return subprocess.run(cmd, capture_output=True, check=True).stdout
 
 
@@ -129,8 +132,15 @@ def main():
     cfg = load_ini(args.config)
 
     if args.pull_from_vostro:
-        print(f"[imo-report] pulling pings.csv from {VOSTRO} ...", flush=True)
-        pings_text = fetch_pings_from_vostro().decode(errors="replace")
+        station = cfg.get("station", {})
+        host = args.station_host or station.get("ssh_host") or ""
+        repo = args.station_repo or station.get("ssh_repo") or ""
+        if not host or not repo:
+            raise SystemExit(
+                "FATAL: --pull-from-vostro needs [station] ssh_host and "
+                "ssh_repo in config.ini (or --station-host/--station-repo)")
+        print(f"[imo-report] pulling pings.csv from {host} ...", flush=True)
+        pings_text = fetch_pings_from_vostro(host, repo).decode(errors="replace")
     else:
         pings_path = args.pings or cfg.get("detector", {}).get("log", "data/pings.csv")
         with open(pings_path) as f:

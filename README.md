@@ -4,7 +4,7 @@ Passive meteor detection: listen for reflections of the **GRAVES space-surveilla
 radar** (near Dijon, France) at **143.050 MHz**. No transmitter needed — you only
 receive. Detect meteors through clouds, in daylight, from your living room.
 
-**Station:** your QTH, [redacted] (51.5, 0.0) · garden faces SE.
+**Station:** your own QTH — the station location lives only in your private `config.ini` and is never published.
 
 > **New to the project? Read [`GUIDE.md`](GUIDE.md)** — the complete
 > end-to-end instructions: hardware setup → installation → Discord alerts →
@@ -13,7 +13,7 @@ receive. Detect meteors through clouds, in daylight, from your living room.
 | Quick facts | |
 |---|---|
 | Target | GRAVES radar, 143.050 MHz, horizontal polarization |
-| Bearing from your QTH | **your bearing true** (~SE — your garden faces it) |
+| Bearing (example) | **~123° true** for a your region observer — compute yours with `bearing.py` |
 | Distance | your distance |
 | Recommended antenna | **Interior half-wave dipole** — 2 × 52 cm, on a south-wall window |
 | Software | Linux + rtl-sdr tools + Python 3.8+ (no pip packages needed) |
@@ -28,8 +28,9 @@ antenna must be **horizontal** (GRAVES transmits horizontally), but exact aiming
 is forgiving: a dipole's broad pattern easily covers your path.
 
 > Note: the 158° azimuth sometimes quoted online is wrong. The verified
-> great-circle bearing your QTH → GRAVES (47.351N, 5.515E) is **your bearing**,
-> so the dipole axis runs **NE–SW (your dipole axis)**, not East–West.
+> great-circle bearing from a your region observer → GRAVES (47.351N, 5.515E)
+> is **~your bearing**, so that observer's dipole axis runs **NE–SW (your dipole axis)**,
+> not East–West. Compute yours with `bearing.py` for your own QTH.
 
 ---
 
@@ -189,7 +190,7 @@ Open **http://localhost:8090** on the acquisition machine for the **Starfall
 Sentinel** dashboard — a live strip chart of signal level and noise floor, a
 plain-language explainer for anyone watching who doesn't know what GRAVES or
 forward-scatter is, and the recent-events table. From any other device on your
-Tailscale network, open **http://<tailscale-ip>:8090** (or the Pi's Tailscale
+Tailscale network, open **http://<host-tailscale-ip>:8090** (or the Pi's Tailscale
 IP). Zero-dependency Python stdlib, same as the rest of the project — no
 Docker or pip install required; it runs as the `graves-dashboard` systemd
 service (Step 9). Designed to double as an OBS Browser Source if you want to

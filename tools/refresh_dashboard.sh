@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# Refresh the Brave dashboard tab on the station host (Vostro).
+# Refresh the Brave dashboard tab on the station host.
 #
-# The dashboard is streamed 24/7 to Twitch via OBS on the Vostro; the
+# The dashboard is streamed 24/7 to Twitch via OBS on the station; the
 # browser tab only picks up NEW page markup on a reload (data refreshes
 # itself every few seconds via JS). After any dashboard.py change, run
 # this so the stream shows the new layout.
 #
-# Mechanism (learned from Claude Code, 2026-08-03): Brave runs as a
-# Flatpak on X11; `xdotool` (installed for this purpose) sends the reload
+# Mechanism: Brave runs as a Flatpak on X11; `xdotool` sends the reload
 # keypress to the "STARFALL SENTINEL" window. We hard-reload
 # (ctrl+shift+r) so the markup can't come from the browser cache.
 #
-# Run directly on the Vostro:
+# Run directly on the station host:
 #   bash tools/refresh_dashboard.sh
-# Or from the dev host over SSH:
-#   ssh user@station-host "bash -s" < tools/refresh_dashboard.sh
+# Or from any management host over SSH:
+#   ssh <user>@<station-host> "bash -s" < tools/refresh_dashboard.sh
 set -uo pipefail
 export DISPLAY=:0
 wid=$(xdotool search --name "STARFALL SENTINEL" 2>/dev/null | head -1)

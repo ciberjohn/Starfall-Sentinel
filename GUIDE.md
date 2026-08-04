@@ -174,7 +174,7 @@ internet: solar weather (NOAA, fetched server-side every 5 min) and the ISS
 pass predictor (TLE from Celestrak, cached to disk for hours so a brief
 outage doesn't blank it); everything else stays fully offline-capable.
 
-From another device: **http://<tailscale-ip>:8090** (or the Pi's Tailscale IP —
+From another device: **http://<host-tailscale-ip>:8090** (or the Pi's Tailscale IP —
 see Part 4). Edited `dashboard.py`? `systemctl --user restart graves-dashboard`
 picks up the change.
 
@@ -191,7 +191,7 @@ picks up the change.
    server — or reuse #science).
 2. Click the channel **Settings** (gear icon) → **Integrations** →
    **Webhooks** → **New Webhook**.
-3. Name it **your QTH Meteor Station** (avatar optional).
+3. Name it after your station (e.g. **"My Meteor Station"**).
 4. Click **Copy Webhook URL** — it looks like
    `https://discord.com/api/webhooks/1234567890/ABC...`
 5. You need the **Manage Webhooks** permission on that channel (as a server
@@ -306,8 +306,8 @@ margin is only a few dB, not GRAVES' 10+.
 | Admin shell | `ssh <user>@<host-tailscale-ip>` |
 | Health check | `curl http://localhost:8090/status` → `OK | live_age_s 3 | pings_today 12` |
 
-No port forwarding, no public exposure — Tailscale is a private mesh (this
-host: <tailscale-ip>).
+No port forwarding, no public exposure — Tailscale is a private mesh (use
+your host's own Tailscale IP, shown by `tailscale ip`).
 
 ### Files to watch
 
@@ -379,9 +379,9 @@ archived — the IMO address is the live channel).
 - A daily 08:30 cron (`~/.hermes/scripts/starfall_imo.sh`) exists but is
   **PAUSED** until the Commission confirms the format it wants. The
   introduction email was sent 2026-08-04 from the station agent (Spock) on
-  behalf of the owner, requesting replies go to both `[redacted]`
-  and `[redacted]`. Resume the "IMO forward-scatter report (daily)"
-  cron job once the format is agreed.
+  behalf of the owner, requesting replies go to both the monitoring agent's
+  address and the owner's address. Resume the "IMO forward-scatter report
+  (daily)" cron job once the format is agreed.
 
 ## Part 6 — Day-1 checklist (when hardware arrives)
 
@@ -427,7 +427,7 @@ archived — the IMO address is the live channel).
 | `python3 detector.py --test-webhook --config config.ini` | test Discord alert |
 | `python3 dashboard.py --port 8090 --data-dir data` | serve the Starfall Sentinel dashboard |
 | `python3 simulate.py --test` | hardware-free end-to-end test |
-| `python3 bearing.py --from "51.5,-0.1"` | recompute azimuth/dipole orientation |
+| `python3 bearing.py --from "51.5,-0.1"` | recompute azimuth/dipole orientation for any QTH |
 | `python3 satpass.py --from "51.5,-0.1"` | next ISS pass (rise/max/set, az/el, duration) + listening frequencies |
 | `python3 iss_recorder.py --calibrate --frequency 145.825M` | live FM level monitor for tuning `[iss] threshold_db` — tuning mode |
 | `python3 iss_scheduler.py --config config.ini` | run the ISS pass scheduler standalone (normally the `graves-iss` service) |
