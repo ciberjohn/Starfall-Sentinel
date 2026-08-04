@@ -108,7 +108,7 @@ gh repo clone ciberjohn/Starfall-Sentinel
 cd Starfall-Sentinel
 ```
 
-*(On this host it's already at `~/graves-detector`.)*
+*(If you already have a checkout, skip this step.)*
 
 ### Step 2.4 — Configure
 
