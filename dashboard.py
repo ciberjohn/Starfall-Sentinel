@@ -15,7 +15,8 @@ Endpoints:
   GET /iss-clips/*   WAV clips saved by iss_recorder.py
   GET /api/rate      ping-rate monitor: hourly PING counts (last 48h) + totals
   GET /api/sporadic-e  LONG events (sporadic-E / interference catalog)
-  GET /sporadic-e    propagation log page (rate chart + LONG events)
+  GET /sporadic-e    sporadic-E / propagation log page (rate chart + LONG
+                     events); alias /sporadic
   GET /api/sstv      decoded ISS SSTV image list
   GET /sstv-images/* decoded SSTV PNGs
   GET /iss-sstv      ISS SSTV gallery page
@@ -519,14 +520,6 @@ footer a{color:var(--series-level)}
       <div class="quad-sub" id="rate-last">last hour -- · last 48h --</div>
     </div>
   </div>
-  <div class="panel quad" id="quad-sporadice">
-    <div class="quad-label">Sporadic-E / LONG</div>
-    <div class="quad-body">
-      <div><span class="quad-num" id="se-count" style="font-size:22px">--</span><span class="quad-unit">events</span></div>
-      <div class="quad-desc" id="se-detail">long-duration bursts (not meteors)</div>
-      <div class="quad-sub" id="se-last">catalog at /sporadic-e</div>
-    </div>
-  </div>
 </div>
 
 <h2>How to read this</h2>
@@ -565,7 +558,7 @@ saved here.</p>
 <footer>
   Starfall Sentinel — GRAVES meteor-scatter station · build your own from
   <a href="https://github.com/ciberjohn/Starfall-Sentinel" target="_blank" rel="noopener">the public repo on GitHub</a>
-  · <a href="/sporadic-e">Propagation log</a> · <a href="/iss-sstv">ISS SSTV gallery</a>
+  · <a href="/sporadic-e">Sporadic-E log</a> · <a href="/iss-sstv">ISS SSTV gallery</a>
 </footer>
 </div>
 <script>
@@ -841,9 +834,6 @@ const ISS_DETAIL = document.getElementById('iss-detail');
 const RATE_TODAY = document.getElementById('rate-today');
 const RATE_DETAIL = document.getElementById('rate-detail');
 const RATE_LAST = document.getElementById('rate-last');
-const SE_COUNT = document.getElementById('se-count');
-const SE_DETAIL = document.getElementById('se-detail');
-const SE_LAST = document.getElementById('se-last');
 
 async function loadQuadrants() {
   let d;
@@ -908,29 +898,18 @@ async function loadRate() {
   RATE_LAST.textContent = `last hour ${d.last_hour} · last 48h ${d.last_48h}`;
 }
 
-async function loadSporadicE() {
-  let d;
-  try { d = await (await fetch('/api/sporadic-e')).json(); } catch (e) { return; }
-  const n = d.events.length;
-  SE_COUNT.textContent = n;
-  SE_DETAIL.textContent = n > 0 ? 'long-duration bursts logged' : 'no LONG events logged';
-  SE_LAST.textContent = n > 0 ? `last: ${fmtUTC(new Date(d.events[0].utc).getTime())}` : 'catalog at /sporadic-e';
-}
-
 setInterval(loadLive, 1000);
 setInterval(loadEvents, 5000);
 setInterval(updateStardate, 1000);
 setInterval(loadQuadrants, 60000);
 setInterval(loadIssHits, 30000);
 setInterval(loadRate, 60000);
-setInterval(loadSporadicE, 60000);
 loadLive();
 loadEvents();
 updateStardate();
 loadQuadrants();
 loadIssHits();
 loadRate();
-loadSporadicE();
 </script>
 </body>
 </html>
@@ -1241,7 +1220,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(rate_payload(self.server.data_dir))
         elif route == "/api/sporadic-e":
             self._send_json(sporadic_e_payload(self.server.data_dir))
-        elif route == "/sporadic-e":
+        elif route in ("/sporadic-e", "/sporadic"):
             self._send(200, SPORADIC_PAGE.encode(), "text/html; charset=utf-8")
         elif route == "/api/sstv":
             self._send_json(sstv_payload(self.server.data_dir))
