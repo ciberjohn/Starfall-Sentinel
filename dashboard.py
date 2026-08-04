@@ -429,7 +429,7 @@ footer a{color:var(--series-level)}
   <div class="headline">
     <h1>STARFALL SENTINEL</h1>
     <!-- __REGION__ comes from config.ini's [station] section. Keep it
-         region-level only (e.g. "South Wales, UK"), never a postcode or
+         region-level only (e.g. "Example Region, Country"), never a postcode or
          house-level detail: this page runs 24/7 on a public stream, and
          anything more precise permanently doxxes the residence. -->
     <div class="subtitle">GRAVES meteor-scatter watch · __REGION__ · 143.050 MHz forward-scatter</div>
