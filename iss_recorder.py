@@ -231,7 +231,7 @@ def run(cfg):
             events_w.writerow(["utc_start", "utc_end", "pass_aos_utc",
                                "duration_s", "n_hits", "peak_db_over_floor",
                                "peak_level_db", "floor_db", "frequency",
-                               "clip_files", "note"])
+                               "clip_files", "merged_clip", "note"])
         os.makedirs(cfg["clips_dir"], exist_ok=True)
 
     active = False
@@ -257,16 +257,24 @@ def run(cfg):
         n = ev["n_hits"]
         note = f"merged {n} hits (ISS burst)" if n > 1 else ""
         ev_w = ev["clip_files"]
+        merged_name = ""
+        if ev["audio"]:
+            stamp = ev["start"].replace(":", "").replace("-", "").replace(".", "").rstrip("Z")
+            merged_name = f"iss_{stamp}Z_ev.wav"
+            write_wav(os.path.join(cfg["clips_dir"], merged_name),
+                      cfg["sample_rate"], ev["audio"])
         events_w.writerow([ev["start"], ev["end"], cfg["pass_aos"],
                            f"{ev['duration_s']:.1f}", str(n),
                            f"{ev['peak_above']:.1f}", f"{ev['peak_level']:.1f}",
                            f"{ev['floor']:.1f}", cfg["frequency"],
-                           ",".join(ev_w), note])
+                           ",".join(ev_w), merged_name, note])
         events_f.flush()
         event_count += 1
         print(f"[ISS EVENT] {ev['start']} -> {ev['end']} "
               f"{ev['duration_s']:.1f}s {n} hit(s) "
               f"peak +{ev['peak_above']:.1f} dB {note}", flush=True)
+        if merged_name:
+            print(f"[ISS EVENT] merged clip -> {merged_name}", flush=True)
 
     def emit():
         nonlocal active, event_samples, hit_count, cur_event, last_hit_utc
@@ -304,11 +312,12 @@ def run(cfg):
             cur_event = {"start": ts, "end": ts, "duration_s": 0.0,
                          "n_hits": 0, "peak_above": -200.0,
                          "peak_level": -200.0, "floor": -200.0,
-                         "clip_files": []}
+                         "clip_files": [], "audio": []}
         cur_event["end"] = ts
         cur_event["duration_s"] = (now - _parse_utc(cur_event["start"])).total_seconds()
         cur_event["n_hits"] += 1
         cur_event["clip_files"].append(fname)
+        cur_event["audio"].extend(event_samples)
         if peak_above > cur_event["peak_above"]:
             cur_event["peak_above"] = peak_above
             cur_event["peak_level"] = peak_level

@@ -886,15 +886,20 @@ async function loadIssHits() {
   }
   ISS_TBODY.innerHTML = d.events.map(ev => {
     const start = new Date(ev.utc_start).getTime();
-    const players = (ev.clips || []).map(c =>
-      `<audio controls preload="none" src="${c}" style="height:28px;max-width:150px;margin:1px 2px 1px 0"></audio>`
-    ).join('');
+    let player;
+    if (ev.merged_clip) {
+      player = `<audio controls preload="none" src="${ev.merged_clip}"></audio>`;
+    } else {
+      player = (ev.clips || []).map(c =>
+        `<audio controls preload="none" src="${c}" style="height:28px;max-width:150px;margin:1px 2px 1px 0"></audio>`
+      ).join('');
+    }
     const note = ev.note ? `<span style="color:var(--ink-muted)"> · ${ev.note}</span>` : '';
     return `<tr><td class="num">${fmtUTC(start)}</td>` +
       `<td class="num">${ev.duration_s} s</td>` +
       `<td class="num">${ev.n_hits}</td>` +
       `<td class="num">+${ev.peak_db_over_floor} dB</td>` +
-      `<td>${players}${note}</td></tr>`;
+      `<td>${player}${note}</td></tr>`;
   }).join('');
 }
 
@@ -1661,12 +1666,18 @@ def iss_events_payload(data_dir):
         row = next(csv.reader([ln]))
         if len(row) >= 11 and row[0].startswith("20"):
             clips = [f"/iss-clips/{c}" for c in row[9].split(",") if c]
+            # row[10] is merged_clip (newer logs); row[11] note. Older rows
+            # written before merged clips have note at index 10.
+            merged = row[10] if len(row) >= 12 else ""
+            note = row[11] if len(row) >= 12 else row[10]
             events.append({
                 "utc_start": row[0], "utc_end": row[1], "pass_aos_utc": row[2],
                 "duration_s": row[3], "n_hits": row[4],
                 "peak_db_over_floor": row[5], "peak_level_db": row[6],
                 "floor_db": row[7], "frequency": row[8],
-                "clips": clips, "note": row[10],
+                "clips": clips,
+                "merged_clip": f"/iss-clips/{merged}" if merged else "",
+                "note": note,
             })
         if len(events) >= 20:
             break

@@ -16,14 +16,45 @@ import csv
 import datetime
 import os
 import sys
+import wave
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_HITS = os.path.join(HERE, "..", "data", "iss_hits.csv")
 DEFAULT_EVENTS = os.path.join(HERE, "..", "data", "iss_events.csv")
+DEFAULT_CLIPS = os.path.join(HERE, "..", "data", "iss_clips")
 
 
 def parse_utc(ts):
     return datetime.datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def merge_clips(clips_dir, clip_names):
+    """Concatenate atomic WAV clips (same rate, mono, 16-bit) into one WAV.
+    Returns (merged_filename, merged_bytes) or (None, None) if empty."""
+    frames = []
+    rate = None
+    for name in clip_names:
+        path = os.path.join(clips_dir, name)
+        if not os.path.exists(path):
+            continue
+        with wave.open(path, "rb") as w:
+            if rate is None:
+                rate = w.getframerate()
+            frames.append(w.readframes(w.getnframes()))
+    if not frames:
+        return None, None
+    return b"".join(frames), rate
+
+
+def write_merged(clips_dir, ev, frames, rate):
+    stamp = ev["start"].replace(":", "").replace("-", "").replace(".", "").rstrip("Z")
+    name = f"iss_{stamp}Z_ev.wav"
+    with wave.open(os.path.join(clips_dir, name), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate or 48000)
+        w.writeframes(frames)
+    return name
 
 
 def main():
@@ -31,10 +62,16 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--hits", default=os.path.abspath(DEFAULT_HITS))
     ap.add_argument("--events", default=os.path.abspath(DEFAULT_EVENTS))
+    ap.add_argument("--clips-dir", default=os.path.abspath(DEFAULT_CLIPS),
+                    help="directory containing the atomic WAV clips to merge")
     ap.add_argument("--gap-s", type=float, default=5.0,
                     help="cluster gap in seconds (default 5.0, must match iss_recorder event_gap_s)")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the events that WOULD be written, don't write")
+    ap.add_argument("--replace", action="store_true",
+                    help="truncate the events log before writing (regenerate "
+                         "from hits; use after changing the schema, e.g. the "
+                         "merged_clip column)")
     args = ap.parse_args()
 
     rows = []
@@ -85,21 +122,29 @@ def main():
         return 0
 
     os.makedirs(os.path.dirname(os.path.abspath(args.events)), exist_ok=True)
-    new_file = not os.path.exists(args.events) or os.path.getsize(args.events) == 0
-    with open(args.events, "a", newline="") as f:
+    new_file = (args.replace or not os.path.exists(args.events)
+                or os.path.getsize(args.events) == 0)
+    with open(args.events, "w" if args.replace else "a", newline="") as f:
         w = csv.writer(f)
         if new_file:
             w.writerow(["utc_start", "utc_end", "pass_aos_utc", "duration_s",
                         "n_hits", "peak_db_over_floor", "peak_level_db",
-                        "floor_db", "frequency", "clip_files", "note"])
+                        "floor_db", "frequency", "clip_files", "merged_clip",
+                        "note"])
         for ev in events:
             n = ev["n_hits"]
             note = f"merged {n} hits (ISS burst)" if n > 1 else ""
             dur = (parse_utc(ev["end"]) - parse_utc(ev["start"])).total_seconds()
+            merged_name = ""
+            if n > 1:
+                frames, rate = merge_clips(args.clips_dir, ev["clips"])
+                if frames:
+                    merged_name = write_merged(args.clips_dir, ev, frames, rate)
             w.writerow([ev["start"], ev["end"], rows[0].get("pass_aos_utc", ""),
                         f"{dur:.1f}", str(n), f"{ev['peak_above']:.1f}",
                         f"{ev['peak_level']:.1f}", f"{ev['floor']:.1f}",
-                        rows[0].get("frequency", ""), ",".join(ev["clips"]), note])
+                        rows[0].get("frequency", ""), ",".join(ev["clips"]),
+                        merged_name, note])
     print(f"wrote {len(events)} event(s) to {args.events}")
     return 0
 
