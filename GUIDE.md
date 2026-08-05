@@ -319,6 +319,48 @@ against a real pass with `python3 iss_recorder.py --calibrate --frequency 145.82
 (same idea as `detector.py --calibrate` in Step 2.6) - FM's idle-vs-signal
 margin is only a few dB, not GRAVES' 10+.
 
+#### How the ISS audio is processed (event → pass → retention)
+
+The raw captures are organized in three levels so the dashboard shows you one
+row per pass, not a wall of clips:
+
+1. **Atomic clips** — every above-floor burst saved as its own WAV
+   (`iss_<timestamp>Z_<nnn>.wav`) in `data/iss_clips/`. These are the raw
+   evidence; nothing is ever deleted at this level by the merge steps.
+2. **Transmission groups** — consecutive clips whose start-time gap is under
+   `[iss] event_gap_s` (5 s default: AFSK packet gaps are 1–5 s, SSTV runs
+   8–36 s continuous) are merged into one event row in `data/iss_events.csv`
+   with a **merged clip** (`iss_<start>Z_ev.wav`). One transmission = one
+   listenable file.
+3. **Pass** — all events in one pass window are aggregated into
+   `data/iss_passes.csv` with a **pass clip** (`iss_<pass>Z_pass.wav`) that
+   preserves the real silence gaps between transmissions. The dashboard shows
+   one row per pass, with the transmission groups expandable underneath.
+
+A utility, `tools/iss_events_backfill.py`, re-derives events/passes from an
+existing hits log (idempotent, `--dry-run` to preview).
+
+**Universal clip decoder** — `tools/iss_clip_decode.py` runs on every clip
+(atomic, merged, and pass) and produces, even from a noisy weak-signal
+capture: a **spectrogram BMP** (`iss_<clip>_sp.bmp`, always), an **SSTV image**
+if the audio is Robot 36 (via the pure-stdlib `sstv_decoder.py`), and
+**APRS/AFSK text** if `multimon-ng` is installed. Results are logged in
+`data/iss_decodes.csv`; the dashboard shows the spectrogram and any decoded
+text next to the audio player. Runs on a 5-minute timer
+(`graves-iss-decoder.timer`).
+
+**Disk retention** — `tools/iss_retention.py` keeps the clips directory
+bounded (weekly timer `graves-iss-retention.timer`): atomic clips 7 days,
+event clips 30 days, pass WAVs 90 days — then transcodes pass WAVs to
+32 kbps mono **MP3** (kept forever, ~25× smaller; the AFSK tones survive
+fine) and drops the WAV. The dashboard falls back to the MP3 automatically.
+Thresholds live in the `[retention]` section of `config.ini`.
+
+**Dashboard filters** — the Recent Events and ISS Audio Log tables are
+scrollable and filterable per day (All / Today / 2 / 7 / 30 days) via
+`?days=N` on the API.
+
+
 ### Remote access (Tailscale)
 
 First install Tailscale on the station host (or skip it — the LAN IP works

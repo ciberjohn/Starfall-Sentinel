@@ -45,6 +45,17 @@ name = my-station-1
 ; (data/ping_curves_archive/) kept for 2 years total - consult old shapes
 ; with: tar -xzf ping_curves_2026-08.tar.gz
 ; curve_retention_days = 182
+
+[retention]
+; ISS clip retention (tools/iss_retention.py, runs weekly via
+; graves-iss-retention.timer). Tiers: atomic clips kept 7 days, event
+; (merged) clips 30 days, pass WAVs 90 days — after which pass WAVs are
+; transcoded to 32 kbps MP3 (kept forever) and the WAV removed. Spectrogram
+; BMPs kept 180 days. SSTV decoded PNGs are never removed.
+; keep_atomic_days = 7
+; keep_event_days = 30
+; keep_pass_days = 90
+; keep_spec_days = 180
 ; curve_archive_days = 730
 ; curve_archive_dir = data/ping_curves_archive
 

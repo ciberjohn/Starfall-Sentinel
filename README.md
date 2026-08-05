@@ -85,7 +85,7 @@ See **`SHOPPING.md`** for the full UK-supplier list with links. Summary:
 
 | Item | Need | Cost |
 |---|---|---|
-| RTL-SDR dongle (your "DTV receptor") | ✔ have it | — |
+| RTL-SDR dongle (the "DTV receptor") | required — see Step 0 in `SHOPPING.md` (skip if you already own one) | £20–30 |
 | Antenna | telescopic dipole kit **or** bare-wire dipole (2 × 52 cm) | £0–20 |
 | Coax | RG174, SMA–SMA, 1–3 m | £8–12 |
 | MCX→SMA adapter | only if your dongle has an MCX socket | £5 |
@@ -99,7 +99,7 @@ See **`SHOPPING.md`** for the full UK-supplier list with links. Summary:
 | What | Requirement | Notes |
 |---|---|---|
 | Computer | A laptop or Raspberry Pi 4/5 running **Ubuntu/Debian Linux** | The dongle plugs into this. A Pi 4/5 (~£50–70) is ideal for 24/7; an old laptop works identically |
-| SDR | RTL-SDR dongle ("DTV receptor") | Already owned |
+| SDR | RTL-SDR dongle ("DTV receptor") | £20–30 — see Step 0 in `SHOPPING.md` |
 | Antenna | Dipole (above) | Already covered |
 | Python | 3.8+ | Ubuntu 22.04+ and Pi OS Bookworm ship 3.10/3.11 — no install needed |
 | Internet | One-time, for `apt` and `git` | Not needed afterwards |
@@ -246,10 +246,10 @@ If you edit `dashboard.py`, pick up the change on a running station with
 
 `deploy.sh` installs rtl-sdr, checks the dongle, creates `config.ini` if
 missing, runs the self-test, then installs `graves-watch`, `graves-dashboard`,
-and `graves-iss` (the ISS pass listener) as systemd **user** services (with
-`WorkingDirectory` set to wherever you cloned the repo) and enables linger so
-they survive reboots without a login session. Safe to re-run any time — e.g.
-after `git pull`.
+`graves-iss` (the ISS pass listener), the clip decoder and retention timers as
+systemd **user** services (with `WorkingDirectory` set to wherever you cloned
+the repo) and enables linger so they survive reboots without a login session.
+Safe to re-run any time — e.g. after `git pull`.
 
 Prefer to do it by hand? The equivalent manual steps:
 
@@ -341,6 +341,10 @@ rates rise markedly.
 - [x] Discord webhook alerting on pings
 - [x] `deploy.sh` one-command install + systemd autostart
 - [x] ISS SSTV decode (`sstv_decoder.py` pure-stdlib Robot 36 + `iss_sstv_decode.py` + timer)
+- [x] ISS event clustering + pass aggregation (merged clips + `iss_events.csv`/`iss_passes.csv`)
+- [x] Universal ISS clip decoder (spectrogram + SSTV + APRS per clip, even noisy)
+- [x] ISS clip retention (tiered WAV cleanup + pass → MP3 transcode)
+- [x] Scrollable, per-day-filterable dashboard lists (pings + ISS passes)
 - [x] Meteor-shower rate monitor (Ping Rate quadrant + `/sporadic-e` hourly chart)
 - [x] Sporadic-E / LONG-event catalog (`/sporadic-e` page + `/api/sporadic-e`)
 - [x] IMO citizen-science report (`imo_report.py` — hourly echo counts emailed to `[imo] to`; see GUIDE Part 5)
