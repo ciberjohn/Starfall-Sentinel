@@ -12,6 +12,7 @@ Endpoints:
   GET /api/quadrants space weather + meteor shower forecast + station bearing
                      + next ISS pass
   GET /api/iss-hits  recent ISS audio captures (last 20) + clip URLs
+  GET /api/iss-events  recent clustered ISS events (last 20) + clip URLs
   GET /iss-clips/*   WAV clips saved by iss_recorder.py
   GET /api/rate      ping-rate monitor: hourly PING counts (last 48h) + totals
   GET /api/curves    recent ping-curve files + shape stats (rise/decay/class)
@@ -563,7 +564,7 @@ threshold, GRAVES pauses and the dongle retunes to listen for the ISS - any
 above-floor audio during that window (voice, SSTV, APRS packet bursts) is
 saved here.</p>
 <table id="iss-hits">
- <thead><tr><th>Time (UTC)</th><th>Duration</th><th>Strength</th><th>Freq</th><th>Listen</th></tr></thead>
+ <thead><tr><th>Event (UTC)</th><th>Duration</th><th>Clips</th><th>Strength</th><th>Listen</th></tr></thead>
  <tbody><tr><td colspan="5" class="empty">no ISS audio captured yet</td></tr></tbody>
 </table>
 </div>
@@ -875,21 +876,26 @@ async function loadEvents() {
 async function loadIssHits() {
   let d;
   try {
-    d = await (await fetch('/api/iss-hits')).json();
+    d = await (await fetch('/api/iss-events')).json();
   } catch (e) {
     return; // transient network hiccup - keep showing the last good state
   }
-  if (!d.hits || d.hits.length === 0) {
+  if (!d.events || d.events.length === 0) {
     ISS_TBODY.innerHTML = '<tr><td colspan="5" class="empty">no ISS audio captured yet</td></tr>';
     return;
   }
-  ISS_TBODY.innerHTML = d.hits.map(h =>
-    `<tr><td class="num">${fmtUTC(new Date(h.utc).getTime())}</td>` +
-    `<td class="num">${(h.duration_ms / 1000).toFixed(1)} s</td>` +
-    `<td class="num">+${h.peak_db_over_floor} dB</td>` +
-    `<td class="num">${h.frequency}</td>` +
-    `<td><audio controls preload="none" src="${h.clip_url}"></audio></td></tr>`
-  ).join('');
+  ISS_TBODY.innerHTML = d.events.map(ev => {
+    const start = new Date(ev.utc_start).getTime();
+    const players = (ev.clips || []).map(c =>
+      `<audio controls preload="none" src="${c}" style="height:28px;max-width:150px;margin:1px 2px 1px 0"></audio>`
+    ).join('');
+    const note = ev.note ? `<span style="color:var(--ink-muted)"> · ${ev.note}</span>` : '';
+    return `<tr><td class="num">${fmtUTC(start)}</td>` +
+      `<td class="num">${ev.duration_s} s</td>` +
+      `<td class="num">${ev.n_hits}</td>` +
+      `<td class="num">+${ev.peak_db_over_floor} dB</td>` +
+      `<td>${players}${note}</td></tr>`;
+  }).join('');
 }
 
 let resizeTimer = null;
@@ -1646,6 +1652,27 @@ def iss_hits_payload(data_dir):
     return {"hits": hits}
 
 
+def iss_events_payload(data_dir):
+    """Clustered ISS events from iss_events.csv (written by iss_recorder.py).
+    Each row aggregates consecutive hits whose start-time gap < event_gap_s."""
+    events = []
+    path = os.path.join(data_dir, "iss_events.csv")
+    for ln in reversed(tail_lines(path, 1000)):
+        row = next(csv.reader([ln]))
+        if len(row) >= 11 and row[0].startswith("20"):
+            clips = [f"/iss-clips/{c}" for c in row[9].split(",") if c]
+            events.append({
+                "utc_start": row[0], "utc_end": row[1], "pass_aos_utc": row[2],
+                "duration_s": row[3], "n_hits": row[4],
+                "peak_db_over_floor": row[5], "peak_level_db": row[6],
+                "floor_db": row[7], "frequency": row[8],
+                "clips": clips, "note": row[10],
+            })
+        if len(events) >= 20:
+            break
+    return {"events": events}
+
+
 def health_payload(data_dir):
     live_path = os.path.join(data_dir, "live.csv")
     age = None
@@ -1699,6 +1726,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(pings_payload(self.server.data_dir))
         elif route == "/api/iss-hits":
             self._send_json(iss_hits_payload(self.server.data_dir))
+        elif route == "/api/iss-events":
+            self._send_json(iss_events_payload(self.server.data_dir))
         elif route.startswith("/iss-clips/"):
             # basename() strips any path components (traversal-proof); the
             # prefix/suffix check confines this to files iss_recorder.py

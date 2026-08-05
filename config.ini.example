@@ -113,6 +113,12 @@ min_ms = 150.0
 hangover_windows = 3
 preroll_s = 0.5
 clip_max_s = 45.0
+; Cluster consecutive hits into one event when their start-time gap is
+; below this (seconds). AFSK packet bursts are typically 1-5 s apart, so
+; 5 s keeps a transmission together while separating distinct ones. SSTV
+; and voice runs are continuous and stay one event naturally. Events are
+; logged to data/iss_events.csv and shown grouped on the dashboard.
+event_gap_s = 5.0
 ; Scheduler-only: margin around AOS/LOS (start a bit early, keep listening a
 ; bit late) and how often to re-poll when no qualifying pass is upcoming.
 pass_preroll_s = 20.0

@@ -71,8 +71,11 @@ def build_parser():
     p.add_argument("--duration-s", type=float, default=argparse.SUPPRESS, help="total run length (the pass window)")
     p.add_argument("--source", choices=["rtl", "stdin"], default=argparse.SUPPRESS)
     p.add_argument("--hits-log", default=argparse.SUPPRESS, help="CSV log path")
+    p.add_argument("--events-log", default=argparse.SUPPRESS, help="CSV event (clustered) log path")
     p.add_argument("--clips-dir", default=argparse.SUPPRESS, help="directory for saved WAV clips")
     p.add_argument("--pass-aos", default=argparse.SUPPRESS, help="AOS timestamp of this pass, logged as context only")
+    p.add_argument("--event-gap-s", type=float, default=argparse.SUPPRESS,
+                   help="hits closer than this (seconds) are clustered into one event")
     p.add_argument("--calibrate", action="store_true", default=argparse.SUPPRESS,
                    help="live level monitor, no logging/recording")
     return p
@@ -95,8 +98,13 @@ def load_config(argv):
         "floor_percentile": 20.0,
         "window_ms": 50.0,
         "duration_s": 360.0,
+        # Cluster hits into meaningful events: consecutive hits whose start
+        # times are closer than this gap belong to the same transmission
+        # (AFSK packet bursts are 1-5 s apart; SSTV/voice runs are continuous).
+        "event_gap_s": 5.0,
         "source": "rtl",
         "hits_log": None,
+        "events_log": None,
         "clips_dir": None,
         "pass_aos": "",
         "calibrate": False,
@@ -120,13 +128,16 @@ def load_config(argv):
     for k in ("sample_rate", "gain", "ppm", "hangover_windows"):
         cfg[k] = int(cfg[k])
     for k in ("threshold_db", "min_ms", "preroll_s", "clip_max_s",
-              "noise_history_s", "window_ms", "floor_percentile", "duration_s"):
+              "noise_history_s", "window_ms", "floor_percentile", "duration_s",
+              "event_gap_s"):
         cfg[k] = float(cfg[k])
     cfg["calibrate"] = str(cfg["calibrate"]).lower() in ("1", "true", "yes")
 
     here = os.path.dirname(os.path.abspath(__file__))
     if cfg["hits_log"] is None:
         cfg["hits_log"] = os.path.join(here, "data", "iss_hits.csv")
+    if cfg["events_log"] is None:
+        cfg["events_log"] = os.path.join(here, "data", "iss_events.csv")
     if cfg["clips_dir"] is None:
         cfg["clips_dir"] = os.path.join(here, "data", "iss_clips")
     return cfg
@@ -200,6 +211,7 @@ def run(cfg):
     buf = []
 
     csv_f = csv_w = None
+    events_f = events_w = None
     if not cfg["calibrate"]:
         path = os.path.abspath(cfg["hits_log"])
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -210,6 +222,16 @@ def run(cfg):
             csv_w.writerow(["utc", "local", "pass_aos_utc", "duration_ms",
                             "peak_db_over_floor", "peak_level_db", "floor_db",
                             "frequency", "clip_file"])
+        epath = os.path.abspath(cfg["events_log"])
+        os.makedirs(os.path.dirname(epath), exist_ok=True)
+        new_events = not os.path.exists(epath) or os.path.getsize(epath) == 0
+        events_f = open(epath, "a", newline="")
+        events_w = csv.writer(events_f)
+        if new_events:
+            events_w.writerow(["utc_start", "utc_end", "pass_aos_utc",
+                               "duration_s", "n_hits", "peak_db_over_floor",
+                               "peak_level_db", "floor_db", "frequency",
+                               "clip_files", "note"])
         os.makedirs(cfg["clips_dir"], exist_ok=True)
 
     active = False
@@ -220,9 +242,34 @@ def run(cfg):
     below_count = 0
     idx = 0
     hit_count = 0
+    # Clustering state: current open event + its last hit timestamp.
+    cur_event = None          # dict or None
+    last_hit_utc = None       # ISO string of previous hit start
+    event_count = 0
+
+    def _parse_utc(ts):
+        return datetime.datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ")
+
+    def close_event(ev):
+        nonlocal event_count
+        if ev is None:
+            return
+        n = ev["n_hits"]
+        note = f"merged {n} hits (ISS burst)" if n > 1 else ""
+        ev_w = ev["clip_files"]
+        events_w.writerow([ev["start"], ev["end"], cfg["pass_aos"],
+                           f"{ev['duration_s']:.1f}", str(n),
+                           f"{ev['peak_above']:.1f}", f"{ev['peak_level']:.1f}",
+                           f"{ev['floor']:.1f}", cfg["frequency"],
+                           ",".join(ev_w), note])
+        events_f.flush()
+        event_count += 1
+        print(f"[ISS EVENT] {ev['start']} -> {ev['end']} "
+              f"{ev['duration_s']:.1f}s {n} hit(s) "
+              f"peak +{ev['peak_above']:.1f} dB {note}", flush=True)
 
     def emit():
-        nonlocal active, event_samples, hit_count
+        nonlocal active, event_samples, hit_count, cur_event, last_hit_utc
         dur_ms = len(event_samples) / cfg["sample_rate"] * 1000.0
         if dur_ms < cfg["min_ms"]:
             active = False
@@ -243,6 +290,31 @@ def run(cfg):
         csv_f.flush()
         hit_count += 1
         print(f"[ISS HIT] {ts} dur {dur_ms:.0f} ms +{peak_above:.1f} dB over floor -> {fname}", flush=True)
+
+        # Cluster into events: same transmission if gap since previous hit
+        # start < event_gap_s, otherwise close the open event and start new.
+        now = _parse_utc(ts)
+        if cur_event is not None and last_hit_utc is not None:
+            gap = (now - _parse_utc(last_hit_utc)).total_seconds()
+        else:
+            gap = float("inf")
+        if cur_event is None or gap >= cfg["event_gap_s"]:
+            if cur_event is not None:
+                close_event(cur_event)
+            cur_event = {"start": ts, "end": ts, "duration_s": 0.0,
+                         "n_hits": 0, "peak_above": -200.0,
+                         "peak_level": -200.0, "floor": -200.0,
+                         "clip_files": []}
+        cur_event["end"] = ts
+        cur_event["duration_s"] = (now - _parse_utc(cur_event["start"])).total_seconds()
+        cur_event["n_hits"] += 1
+        cur_event["clip_files"].append(fname)
+        if peak_above > cur_event["peak_above"]:
+            cur_event["peak_above"] = peak_above
+            cur_event["peak_level"] = peak_level
+            cur_event["floor"] = floor_at_peak
+        last_hit_utc = ts
+
         active = False
         event_samples = []
 
@@ -297,9 +369,18 @@ def run(cfg):
                 idx += 1
         if active:
             emit()
+        if cur_event is not None:
+            close_event(cur_event)
+            cur_event = None
     except KeyboardInterrupt:
         print("\n[iss-recorder] stopped by operator", flush=True)
     finally:
+        if cur_event is not None:
+            try:
+                close_event(cur_event)
+            except Exception:
+                pass
+            cur_event = None
         if proc is not None:
             proc.terminate()
             try:
@@ -308,9 +389,12 @@ def run(cfg):
                 proc.kill()
         if csv_f is not None:
             csv_f.close()
+        if events_f is not None:
+            events_f.close()
 
     if not cfg["calibrate"]:
-        print(f"[iss-recorder] done - {hit_count} hit(s) this pass", flush=True)
+        print(f"[iss-recorder] done - {hit_count} hit(s), "
+              f"{event_count} event(s) this pass", flush=True)
 
 
 def main():
