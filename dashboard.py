@@ -13,6 +13,7 @@ Endpoints:
                      + next ISS pass
   GET /api/iss-hits  recent ISS audio captures (last 20) + clip URLs
   GET /api/iss-events  recent clustered ISS events (last 20) + clip URLs
+  GET /api/iss-passes  pass-level ISS events (one row per AOS window)
   GET /iss-clips/*   WAV clips saved by iss_recorder.py
   GET /api/rate      ping-rate monitor: hourly PING counts (last 48h) + totals
   GET /api/curves    recent ping-curve files + shape stats (rise/decay/class)
@@ -564,7 +565,7 @@ threshold, GRAVES pauses and the dongle retunes to listen for the ISS - any
 above-floor audio during that window (voice, SSTV, APRS packet bursts) is
 saved here.</p>
 <table id="iss-hits">
- <thead><tr><th>Event (UTC)</th><th>Duration</th><th>Clips</th><th>Strength</th><th>Listen</th></tr></thead>
+ <thead><tr><th>Pass (UTC)</th><th>Duration</th><th>Groups</th><th>Strength</th><th>Listen</th></tr></thead>
  <tbody><tr><td colspan="5" class="empty">no ISS audio captured yet</td></tr></tbody>
 </table>
 </div>
@@ -874,21 +875,34 @@ async function loadEvents() {
 }
 
 async function loadIssHits() {
-  let d;
+  let d, p;
   try {
-    d = await (await fetch('/api/iss-events')).json();
+    [d, p] = await Promise.all([
+      (await fetch('/api/iss-events')).json(),
+      (await fetch('/api/iss-passes')).json()
+    ]);
   } catch (e) {
     return; // transient network hiccup - keep showing the last good state
   }
-  if (!d.events || d.events.length === 0) {
+  if ((!d.events || d.events.length === 0) && (!p.passes || p.passes.length === 0)) {
     ISS_TBODY.innerHTML = '<tr><td colspan="5" class="empty">no ISS audio captured yet</td></tr>';
     return;
   }
-  ISS_TBODY.innerHTML = d.events.map(ev => {
+  // group events under their pass (by pass_aos_utc)
+  const byPass = {};
+  (d.events || []).forEach(ev => {
+    const k = ev.pass_aos_utc || 'unknown';
+    (byPass[k] = byPass[k] || []).push(ev);
+  });
+  const passes = p.passes && p.passes.length
+    ? p.passes.map(pass => ({ ...pass, events: byPass[pass.pass_aos_utc] || [] }))
+    : Object.keys(byPass).map(k => ({ pass_aos_utc: k, pass_clip: '', events: byPass[k] }));
+
+  const evRow = ev => {
     const start = new Date(ev.utc_start).getTime();
     let player;
     if (ev.merged_clip) {
-      player = `<audio controls preload="none" src="${ev.merged_clip}"></audio>`;
+      player = `<audio controls preload="none" src="${ev.merged_clip}" style="height:28px"></audio>`;
     } else {
       player = (ev.clips || []).map(c =>
         `<audio controls preload="none" src="${c}" style="height:28px;max-width:150px;margin:1px 2px 1px 0"></audio>`
@@ -896,17 +910,32 @@ async function loadIssHits() {
     }
     let visuals = '';
     if (ev.spectrogram) {
-      visuals += `<a href="${ev.spectrogram}" target="_blank"><img src="${ev.spectrogram}" style="max-height:80px;max-width:200px;border:1px solid var(--border);border-radius:4px;margin-top:3px" alt="spectrogram"></a> `;
+      visuals += `<a href="${ev.spectrogram}" target="_blank"><img src="${ev.spectrogram}" style="max-height:60px;max-width:150px;border:1px solid var(--border);border-radius:4px;margin-top:2px" alt="spectrogram"></a> `;
     }
     if (ev.aprs_text) {
       visuals += `<div style="font-size:10px;color:var(--ink-muted);max-width:300px">${ev.aprs_text}</div>`;
     }
-    const note = ev.note ? `<span style="color:var(--ink-muted)"> · ${ev.note}</span>` : '';
-    return `<tr><td class="num">${fmtUTC(start)}</td>` +
+    return `<tr style="border-top:1px dashed var(--border)"><td class="num" style="padding-left:24px">${fmtUTC(start)}</td>` +
       `<td class="num">${ev.duration_s} s</td>` +
       `<td class="num">${ev.n_hits}</td>` +
       `<td class="num">+${ev.peak_db_over_floor} dB</td>` +
-      `<td>${player}${visuals}${note}</td></tr>`;
+      `<td>${player}${visuals} ${ev.note || ''}</td></tr>`;
+  };
+
+  ISS_TBODY.innerHTML = passes.map(pass => {
+    const start = new Date((pass.events[0] || {}).utc_start || pass.pass_start).getTime();
+    const clip = pass.pass_clip
+      ? `<audio controls preload="none" src="${pass.pass_clip}" style="height:28px"></audio>`
+      : '';
+    const groups = pass.events.length
+      ? `<details style="margin-top:3px"><summary style="font-size:10px;color:var(--ink-muted);cursor:pointer">${pass.events.length} transmission group(s), ${pass.n_hits || ''} clips — show/hide</summary>` +
+        `<table style="width:100%;border-collapse:collapse">${pass.events.map(evRow).join('')}</table></details>`
+      : '';
+    return `<tr><td class="num"><b>Pass</b> ${fmtUTC(start)}</td>` +
+      `<td class="num">${pass.duration_s || ''} s</td>` +
+      `<td class="num">${pass.n_events || pass.events.length} group(s)</td>` +
+      `<td class="num">+${pass.peak_db_over_floor || ''} dB</td>` +
+      `<td>${clip}${groups}</td></tr>`;
   }).join('');
 }
 
@@ -1706,6 +1735,27 @@ def iss_events_payload(data_dir):
     return {"events": events}
 
 
+def iss_passes_payload(data_dir, limit=10):
+    """Pass-level ISS events: one row per AOS window, with the transmission
+    groups nested under it. Reads iss_passes.csv (written by iss_recorder.py
+    at the end of each pass)."""
+    passes = []
+    ppath = os.path.join(data_dir, "iss_passes.csv")
+    for ln in reversed(tail_lines(ppath, 500)):
+        row = next(csv.reader([ln]))
+        if len(row) >= 11 and row[0].startswith("20"):
+            passes.append({
+                "pass_aos_utc": row[0], "pass_start": row[1], "pass_end": row[2],
+                "duration_s": row[3], "n_events": row[4], "n_hits": row[5],
+                "peak_db_over_floor": row[6], "peak_level_db": row[7],
+                "floor_db": row[8], "frequency": row[9],
+                "pass_clip": f"/iss-clips/{row[10]}" if row[10] else "",
+            })
+        if len(passes) >= limit:
+            break
+    return {"passes": passes}
+
+
 def health_payload(data_dir):
     live_path = os.path.join(data_dir, "live.csv")
     age = None
@@ -1761,6 +1811,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(iss_hits_payload(self.server.data_dir))
         elif route == "/api/iss-events":
             self._send_json(iss_events_payload(self.server.data_dir))
+        elif route == "/api/iss-passes":
+            self._send_json(iss_passes_payload(self.server.data_dir))
         elif route.startswith("/iss-clips/"):
             # basename() strips any path components (traversal-proof); the
             # prefix/suffix check confines this to files iss_recorder.py

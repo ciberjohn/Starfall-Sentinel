@@ -62,6 +62,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--hits", default=os.path.abspath(DEFAULT_HITS))
     ap.add_argument("--events", default=os.path.abspath(DEFAULT_EVENTS))
+    ap.add_argument("--passes", default=os.path.join(os.path.dirname(os.path.abspath(DEFAULT_EVENTS)), "iss_passes.csv"),
+                    help="pass-level log path (default: alongside --events)")
     ap.add_argument("--clips-dir", default=os.path.abspath(DEFAULT_CLIPS),
                     help="directory containing the atomic WAV clips to merge")
     ap.add_argument("--gap-s", type=float, default=5.0,
@@ -140,12 +142,72 @@ def main():
                 frames, rate = merge_clips(args.clips_dir, ev["clips"])
                 if frames:
                     merged_name = write_merged(args.clips_dir, ev, frames, rate)
+            ev["merged_clip"] = merged_name  # pass builder reads this
             w.writerow([ev["start"], ev["end"], rows[0].get("pass_aos_utc", ""),
                         f"{dur:.1f}", str(n), f"{ev['peak_above']:.1f}",
                         f"{ev['peak_level']:.1f}", f"{ev['floor']:.1f}",
                         rows[0].get("frequency", ""), ",".join(ev["clips"]),
                         merged_name, note])
     print(f"wrote {len(events)} event(s) to {args.events}")
+
+    # ── pass-level aggregation: group events by pass_aos_utc, build one
+    # pass clip per pass (merged event clips + real silence gaps) ──────
+    if not args.dry_run:
+        pass_by_aos = {}
+        # all events in a single hits log come from one recorder run => one
+        # pass_aos_utc; fall back to the first event start if it's empty
+        shared_aos = rows[0].get("pass_aos_utc", "") or events[0]["start"]
+        for ev in events:
+            key = shared_aos
+            pass_by_aos.setdefault(key, []).append(ev)
+
+        with open(args.passes, "a", newline="") as f:
+            w = csv.writer(f)
+            new_passes = not os.path.exists(args.passes) or os.path.getsize(args.passes) == 0
+            if new_passes:
+                w.writerow(["pass_aos_utc", "pass_start", "pass_end",
+                            "duration_s", "n_events", "n_hits",
+                            "peak_db_over_floor", "peak_level_db",
+                            "floor_db", "frequency", "pass_clip"])
+            for aos, evs in pass_by_aos.items():
+                evs.sort(key=lambda e: e["start"])
+                pass_start = evs[0]["start"]
+                pass_end = evs[-1]["end"]
+                dur = (parse_utc(pass_end) - parse_utc(pass_start)).total_seconds()
+                n_events = len(evs)
+                n_hits = sum(int(e["n_hits"]) for e in evs)
+                peak = max(float(e["peak_above"]) for e in evs)
+                peak_ev = max(evs, key=lambda e: float(e["peak_above"]))
+                # build pass clip: merged event clips + silence gaps
+                pass_frames = []
+                rate = None
+                prev_end = None
+                for ev in evs:
+                    merged = ev.get("merged_clip", "")
+                    path = os.path.join(args.clips_dir, merged) if merged else ""
+                    if not path or not os.path.exists(path):
+                        continue
+                    with wave.open(path, "rb") as wf:
+                        if rate is None:
+                            rate = wf.getframerate()
+                        if prev_end is not None:
+                            gap = (parse_utc(ev["start"]) - prev_end).total_seconds()
+                            if gap > 0:
+                                pass_frames.append(b"\x00\x00" * int(gap * rate))
+                        pass_frames.append(wf.readframes(wf.getnframes()))
+                        prev_end = parse_utc(ev["end"])
+                pass_name = ""
+                if pass_frames and rate:
+                    stamp = aos.replace(":", "").replace("-", "").replace(".", "").rstrip("Z")
+                    pass_name = f"iss_{stamp}Z_pass.wav"
+                    with wave.open(os.path.join(args.clips_dir, pass_name), "wb") as wf:
+                        wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(rate)
+                        wf.writeframes(b"".join(pass_frames))
+                w.writerow([aos, pass_start, pass_end, f"{dur:.1f}",
+                            str(n_events), str(n_hits), f"{peak:.1f}",
+                            peak_ev["peak_level"], peak_ev["floor"],
+                            rows[0].get("frequency", ""), pass_name])
+        print(f"wrote {len(pass_by_aos)} pass(es) to {args.passes}")
     return 0
 
 

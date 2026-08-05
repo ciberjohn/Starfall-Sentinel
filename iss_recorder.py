@@ -72,6 +72,7 @@ def build_parser():
     p.add_argument("--source", choices=["rtl", "stdin"], default=argparse.SUPPRESS)
     p.add_argument("--hits-log", default=argparse.SUPPRESS, help="CSV log path")
     p.add_argument("--events-log", default=argparse.SUPPRESS, help="CSV event (clustered) log path")
+    p.add_argument("--passes-log", default=argparse.SUPPRESS, help="CSV pass-level log path")
     p.add_argument("--clips-dir", default=argparse.SUPPRESS, help="directory for saved WAV clips")
     p.add_argument("--pass-aos", default=argparse.SUPPRESS, help="AOS timestamp of this pass, logged as context only")
     p.add_argument("--event-gap-s", type=float, default=argparse.SUPPRESS,
@@ -105,6 +106,7 @@ def load_config(argv):
         "source": "rtl",
         "hits_log": None,
         "events_log": None,
+        "passes_log": None,
         "clips_dir": None,
         "pass_aos": "",
         "calibrate": False,
@@ -138,6 +140,8 @@ def load_config(argv):
         cfg["hits_log"] = os.path.join(here, "data", "iss_hits.csv")
     if cfg["events_log"] is None:
         cfg["events_log"] = os.path.join(here, "data", "iss_events.csv")
+    if cfg["passes_log"] is None:
+        cfg["passes_log"] = os.path.join(here, "data", "iss_passes.csv")
     if cfg["clips_dir"] is None:
         cfg["clips_dir"] = os.path.join(here, "data", "iss_clips")
     return cfg
@@ -212,6 +216,7 @@ def run(cfg):
 
     csv_f = csv_w = None
     events_f = events_w = None
+    passes_f = passes_w = None
     if not cfg["calibrate"]:
         path = os.path.abspath(cfg["hits_log"])
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -232,6 +237,16 @@ def run(cfg):
                                "duration_s", "n_hits", "peak_db_over_floor",
                                "peak_level_db", "floor_db", "frequency",
                                "clip_files", "merged_clip", "note"])
+        ppath = os.path.abspath(cfg["passes_log"])
+        os.makedirs(os.path.dirname(ppath), exist_ok=True)
+        new_passes = not os.path.exists(ppath) or os.path.getsize(ppath) == 0
+        passes_f = open(ppath, "a", newline="")
+        passes_w = csv.writer(passes_f)
+        if new_passes:
+            passes_w.writerow(["pass_aos_utc", "pass_start", "pass_end",
+                               "duration_s", "n_events", "n_hits",
+                               "peak_db_over_floor", "peak_level_db",
+                               "floor_db", "frequency", "pass_clip"])
         os.makedirs(cfg["clips_dir"], exist_ok=True)
 
     active = False
@@ -246,12 +261,23 @@ def run(cfg):
     cur_event = None          # dict or None
     last_hit_utc = None       # ISO string of previous hit start
     event_count = 0
+    # Pass-level aggregation: one recorder run == one pass. All events in
+    # this run belong to it. We keep the per-event audio chunks + their
+    # timestamps so the pass clip preserves the REAL gaps (the ISS digipeater
+    # is burst-mode: silence between packets is dead air, not faded signal).
+    pass_chunks = []          # list of (start_iso, end_iso, audio_list)
+    pass_hits = 0
+    pass_peak_above = -200.0
+    pass_peak_level = -200.0
+    pass_floor = -200.0
+    pass_closed = False
 
     def _parse_utc(ts):
         return datetime.datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ")
 
     def close_event(ev):
-        nonlocal event_count
+        nonlocal event_count, pass_chunks, pass_hits, pass_peak_above
+        nonlocal pass_peak_level, pass_floor
         if ev is None:
             return
         n = ev["n_hits"]
@@ -270,11 +296,55 @@ def run(cfg):
                            ",".join(ev_w), merged_name, note])
         events_f.flush()
         event_count += 1
+        # accumulate into the pass clip (audio + real timestamps)
+        pass_chunks.append((ev["start"], ev["end"], ev["audio"]))
+        pass_hits += n
+        if ev["peak_above"] > pass_peak_above:
+            pass_peak_above = ev["peak_above"]
+            pass_peak_level = ev["peak_level"]
+            pass_floor = ev["floor"]
         print(f"[ISS EVENT] {ev['start']} -> {ev['end']} "
               f"{ev['duration_s']:.1f}s {n} hit(s) "
               f"peak +{ev['peak_above']:.1f} dB {note}", flush=True)
         if merged_name:
             print(f"[ISS EVENT] merged clip -> {merged_name}", flush=True)
+
+    def close_pass():
+        """Write the pass-level merged WAV (audio chunks with real silence
+        gaps preserved) + one iss_passes.csv row for this pass."""
+        nonlocal pass_chunks, pass_closed
+        if pass_closed or not pass_chunks:
+            return
+        pass_closed = True
+        pass_chunks.sort(key=lambda c: c[0])
+        # total real span: first chunk start to last chunk end
+        first_start = _parse_utc(pass_chunks[0][0])
+        last_end = _parse_utc(pass_chunks[-1][1])
+        # build the pass audio: chunk + silence pad (the gap to next chunk)
+        audio = []
+        sr = int(cfg["sample_rate"])
+        prev_end = None
+        for start_iso, end_iso, chunk_audio in pass_chunks:
+            if prev_end is not None:
+                gap = (_parse_utc(start_iso) - prev_end).total_seconds()
+                if gap > 0:
+                    audio.extend([0] * int(gap * sr))
+            audio.extend(chunk_audio)
+            prev_end = _parse_utc(end_iso)
+        stamp = cfg["pass_aos"].replace(":", "").replace("-", "").replace(".", "").rstrip("Z")
+        if not stamp:
+            stamp = pass_chunks[0][0].replace(":", "").replace("-", "").replace(".", "").rstrip("Z")
+        pass_name = f"iss_{stamp}Z_pass.wav"
+        write_wav(os.path.join(cfg["clips_dir"], pass_name), sr, audio)
+        total_s = (last_end - first_start).total_seconds()
+        passes_w.writerow([cfg["pass_aos"], pass_chunks[0][0], pass_chunks[-1][1],
+                           f"{total_s:.1f}", str(event_count), str(pass_hits),
+                           f"{pass_peak_above:.1f}", f"{pass_peak_level:.1f}",
+                           f"{pass_floor:.1f}", cfg["frequency"], pass_name])
+        passes_f.flush()
+        print(f"[ISS PASS] {cfg['pass_aos']} {total_s:.1f}s "
+              f"{event_count} group(s) {pass_hits} hit(s) "
+              f"peak +{pass_peak_above:.1f} dB -> {pass_name}", flush=True)
 
     def emit():
         nonlocal active, event_samples, hit_count, cur_event, last_hit_utc
@@ -381,6 +451,7 @@ def run(cfg):
         if cur_event is not None:
             close_event(cur_event)
             cur_event = None
+        close_pass()
     except KeyboardInterrupt:
         print("\n[iss-recorder] stopped by operator", flush=True)
     finally:
@@ -390,6 +461,10 @@ def run(cfg):
             except Exception:
                 pass
             cur_event = None
+        try:
+            close_pass()
+        except Exception:
+            pass
         if proc is not None:
             proc.terminate()
             try:
@@ -400,6 +475,8 @@ def run(cfg):
             csv_f.close()
         if events_f is not None:
             events_f.close()
+        if passes_f is not None:
+            passes_f.close()
 
     if not cfg["calibrate"]:
         print(f"[iss-recorder] done - {hit_count} hit(s), "
