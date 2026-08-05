@@ -894,12 +894,19 @@ async function loadIssHits() {
         `<audio controls preload="none" src="${c}" style="height:28px;max-width:150px;margin:1px 2px 1px 0"></audio>`
       ).join('');
     }
+    let visuals = '';
+    if (ev.spectrogram) {
+      visuals += `<a href="${ev.spectrogram}" target="_blank"><img src="${ev.spectrogram}" style="max-height:80px;max-width:200px;border:1px solid var(--border);border-radius:4px;margin-top:3px" alt="spectrogram"></a> `;
+    }
+    if (ev.aprs_text) {
+      visuals += `<div style="font-size:10px;color:var(--ink-muted);max-width:300px">${ev.aprs_text}</div>`;
+    }
     const note = ev.note ? `<span style="color:var(--ink-muted)"> · ${ev.note}</span>` : '';
     return `<tr><td class="num">${fmtUTC(start)}</td>` +
       `<td class="num">${ev.duration_s} s</td>` +
       `<td class="num">${ev.n_hits}</td>` +
       `<td class="num">+${ev.peak_db_over_floor} dB</td>` +
-      `<td>${player}${note}</td></tr>`;
+      `<td>${player}${visuals}${note}</td></tr>`;
   }).join('');
 }
 
@@ -1662,6 +1669,13 @@ def iss_events_payload(data_dir):
     Each row aggregates consecutive hits whose start-time gap < event_gap_s."""
     events = []
     path = os.path.join(data_dir, "iss_events.csv")
+    # also load the decode log to attach decode data per clip
+    decodes = {}
+    dpath = os.path.join(data_dir, "iss_decodes.csv")
+    for ln in reversed(tail_lines(dpath, 2000)):
+        row = next(csv.reader([ln]))
+        if len(row) >= 2 and row[0].startswith("iss_"):
+            decodes[row[0]] = row  # clip_file -> row
     for ln in reversed(tail_lines(path, 1000)):
         row = next(csv.reader([ln]))
         if len(row) >= 11 and row[0].startswith("20"):
@@ -1678,7 +1692,15 @@ def iss_events_payload(data_dir):
                 "clips": clips,
                 "merged_clip": f"/iss-clips/{merged}" if merged else "",
                 "note": note,
+                "spectrogram": "",
+                "aprs_text": "",
             })
+            # attach decoded info for the merged clip (or first clip)
+            clip_key = merged if merged else (row[9].split(",")[0] if row[9] else "")
+            if clip_key and clip_key in decodes:
+                dr = decodes[clip_key]
+                events[-1]["spectrogram"] = f"/iss-clips/{dr[1]}" if len(dr) > 1 and dr[1] else ""
+                events[-1]["aprs_text"] = dr[5] if len(dr) > 5 else ""
         if len(events) >= 20:
             break
     return {"events": events}
@@ -1744,8 +1766,9 @@ class Handler(BaseHTTPRequestHandler):
             # prefix/suffix check confines this to files iss_recorder.py
             # actually writes, not an arbitrary-file-read primitive
             fname = os.path.basename(route[len("/iss-clips/"):])
-            if fname.startswith("iss_") and fname.endswith(".wav"):
-                self._send_file(os.path.join(self.server.data_dir, "iss_clips", fname), "audio/wav")
+            if fname.startswith("iss_") and (fname.endswith(".wav") or fname.endswith(".bmp") or fname.endswith(".png")):
+                mime = "audio/wav" if fname.endswith(".wav") else "image/png" if fname.endswith(".png") else "image/bmp"
+                self._send_file(os.path.join(self.server.data_dir, "iss_clips", fname), mime)
             else:
                 self.send_error(404)
         elif route == "/api/quadrants":
