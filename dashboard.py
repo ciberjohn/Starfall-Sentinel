@@ -340,6 +340,22 @@ h1{font-size:26px;letter-spacing:4px;color:var(--ink);margin:0;font-weight:800;
 #tooltip{position:absolute;display:none;pointer-events:none;background:#000;border:1px solid var(--border);
   border-radius:5px;padding:6px 9px;font-size:11.5px;color:var(--ink);white-space:nowrap;z-index:5}
 #iss-hits audio{height:28px;max-width:230px;vertical-align:middle}
+/* scrollable table wrappers - fixed-height lists instead of endless stacking */
+.table-scroll{max-height:420px;overflow-y:auto;overscroll-behavior:contain;
+  border:1px solid var(--border);border-radius:6px;background:var(--surface)}
+.table-scroll table{margin:0}
+.table-scroll thead th{position:sticky;top:0;background:var(--surface);
+  z-index:2;box-shadow:0 1px 0 var(--border)}
+.table-scroll tbody tr:last-child td{border-bottom:none}
+.panel-toolbar{display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap}
+.panel-toolbar .spacer{flex:1}
+.filter-label{font-size:11px;color:var(--ink-muted);letter-spacing:.5px}
+.filter-select{background:var(--surface);border:1px solid var(--border);
+  color:var(--ink-2);border-radius:6px;padding:3px 8px;font-size:12px;
+  font-family:var(--mono);cursor:pointer}
+.filter-select:hover{border-color:var(--series-level)}
+.filter-select:focus{outline:none;border-color:var(--series-level)}
+.count-chip{font-size:11px;color:var(--ink-muted);font-family:var(--mono)}
 .legend-row{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--ink-2)}
 .chip{display:inline-flex;align-items:center;gap:6px}
 .swatch{width:14px;height:3px;border-radius:2px;display:inline-block}
@@ -552,10 +568,24 @@ footer a{color:var(--series-level)}
 
 <div class="section-head"><h2>Recent Events</h2><a href="/ping-curves">⤢ Click here for curves</a></div>
 <div class="panel">
+<div class="panel-toolbar">
+  <span class="filter-label">Filter</span>
+  <select id="events-filter" class="filter-select" title="Filter events by age">
+    <option value="">All</option>
+    <option value="1">Today</option>
+    <option value="2">Last 2 days</option>
+    <option value="7">Last 7 days</option>
+    <option value="30">Last 30 days</option>
+  </select>
+  <span class="spacer"></span>
+  <span class="count-chip" id="events-count"></span>
+</div>
+<div class="table-scroll">
 <table id="events">
  <thead><tr><th>Time (UTC)</th><th>Start</th><th>Duration</th><th>Strength</th><th>Kind</th><th>Shape</th></tr></thead>
  <tbody><tr><td colspan="6" class="empty">no events yet</td></tr></tbody>
 </table>
+</div>
 </div>
 
 <h2>ISS Audio Log</h2>
@@ -564,10 +594,24 @@ footer a{color:var(--series-level)}
 threshold, GRAVES pauses and the dongle retunes to listen for the ISS - any
 above-floor audio during that window (voice, SSTV, APRS packet bursts) is
 saved here.</p>
+<div class="panel-toolbar">
+  <span class="filter-label">Filter</span>
+  <select id="iss-filter" class="filter-select" title="Filter passes by age">
+    <option value="">All</option>
+    <option value="1">Today</option>
+    <option value="2">Last 2 days</option>
+    <option value="7">Last 7 days</option>
+    <option value="30">Last 30 days</option>
+  </select>
+  <span class="spacer"></span>
+  <span class="count-chip" id="iss-count"></span>
+</div>
+<div class="table-scroll">
 <table id="iss-hits">
  <thead><tr><th>Pass (UTC)</th><th>Duration</th><th>Groups</th><th>Strength</th><th>Listen</th></tr></thead>
  <tbody><tr><td colspan="5" class="empty">no ISS audio captured yet</td></tr></tbody>
 </table>
+</div>
 </div>
 
 <footer>
@@ -779,10 +823,13 @@ async function loadLive() {
 }
 
 async function loadEvents() {
-  const r = await fetch('/api/pings');
+  const days = document.getElementById('events-filter').value;
+  const url = days ? '/api/pings?days=' + days : '/api/pings';
+  const r = await fetch(url);
   const d = await r.json();
   if (!d.pings || d.pings.length === 0) {
     TBODY.innerHTML = '<tr><td colspan="6" class="empty">no events yet</td></tr>';
+    document.getElementById('events-count').textContent = '0 events';
     return;
   }
   // pings[0] is the newest (pings_payload reverses the tail). Establishes a
@@ -806,6 +853,7 @@ async function loadEvents() {
     `<td><span class="badge ${p.kind}">${p.kind}</span></td>` +
     `<td>${p.curve_file ? `<button class="curve-btn" data-file="${p.curve_file}" style="cursor:pointer;background:#1e2a3a;color:#7ab8ff;border:none;border-radius:3px;padding:1px 8px;font-size:12px">⤢</button>` : ''}</td></tr>`
   ).join('');
+  document.getElementById('events-count').textContent = d.pings.length + ' event' + (d.pings.length === 1 ? '' : 's');
   document.querySelectorAll('.curve-btn').forEach(b => {
     b.onclick = async () => {
       const tr = b.closest('tr');
@@ -876,16 +924,19 @@ async function loadEvents() {
 
 async function loadIssHits() {
   let d, p;
+  const days = document.getElementById('iss-filter').value;
+  const q = days ? '?days=' + days : '';
   try {
     [d, p] = await Promise.all([
-      (await fetch('/api/iss-events')).json(),
-      (await fetch('/api/iss-passes')).json()
+      (await fetch('/api/iss-events' + q)).json(),
+      (await fetch('/api/iss-passes' + q)).json()
     ]);
   } catch (e) {
     return; // transient network hiccup - keep showing the last good state
   }
   if ((!d.events || d.events.length === 0) && (!p.passes || p.passes.length === 0)) {
     ISS_TBODY.innerHTML = '<tr><td colspan="5" class="empty">no ISS audio captured yet</td></tr>';
+    document.getElementById('iss-count').textContent = '0 passes';
     return;
   }
   // group events under their pass (by pass_aos_utc)
@@ -937,6 +988,7 @@ async function loadIssHits() {
       `<td class="num">+${pass.peak_db_over_floor || ''} dB</td>` +
       `<td>${clip}${groups}</td></tr>`;
   }).join('');
+  document.getElementById('iss-count').textContent = passes.length + ' pass' + (passes.length === 1 ? '' : 'es');
 }
 
 let resizeTimer = null;
@@ -1044,6 +1096,8 @@ visLoop(updateStardate, 1000);
 visLoop(loadQuadrants, 60000);
 visLoop(loadIssHits, 30000);
 visLoop(loadRate, 60000);
+document.getElementById('events-filter').addEventListener('change', loadEvents);
+document.getElementById('iss-filter').addEventListener('change', loadIssHits);
 </script>
 </body>
 </html>
@@ -1299,12 +1353,23 @@ def live_payload(data_dir):
     }
 
 
-def pings_payload(data_dir):
+def pings_payload(data_dir, days=None):
     pings = []
     path = os.path.join(data_dir, "pings.csv")
-    for ln in reversed(tail_lines(path, 2000)):
+    # when filtering by days, read deeper into history than the cap
+    tail_n = 20000 if days else 2000
+    cutoff = None
+    if days:
+        cutoff = time.time() - days * 86400.0
+    for ln in reversed(tail_lines(path, tail_n)):
         row = next(csv.reader([ln]))
         if len(row) >= 8 and row[0].startswith("20"):
+            try:
+                ts = datetime.datetime.strptime(row[0], "%Y-%m-%dT%H:%M:%S.%fZ").timestamp()
+            except ValueError:
+                continue
+            if cutoff is not None and ts < cutoff:
+                continue
             pings.append({
                 "utc": row[0], "local": row[1], "start_ms": row[2],
                 "duration_ms": row[3], "peak_db_over_floor": row[4],
@@ -1693,11 +1758,14 @@ def iss_hits_payload(data_dir):
     return {"hits": hits}
 
 
-def iss_events_payload(data_dir):
+def iss_events_payload(data_dir, days=None):
     """Clustered ISS events from iss_events.csv (written by iss_recorder.py).
     Each row aggregates consecutive hits whose start-time gap < event_gap_s."""
     events = []
     path = os.path.join(data_dir, "iss_events.csv")
+    cutoff = None
+    if days:
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
     # also load the decode log to attach decode data per clip
     decodes = {}
     dpath = os.path.join(data_dir, "iss_decodes.csv")
@@ -1708,6 +1776,14 @@ def iss_events_payload(data_dir):
     for ln in reversed(tail_lines(path, 1000)):
         row = next(csv.reader([ln]))
         if len(row) >= 11 and row[0].startswith("20"):
+            if cutoff is not None:
+                try:
+                    ev_start = datetime.datetime.strptime(row[0], "%Y-%m-%dT%H:%M:%S.%fZ")
+                    ev_start = ev_start.replace(tzinfo=datetime.timezone.utc)
+                except ValueError:
+                    continue
+                if ev_start < cutoff:
+                    continue
             clips = [f"/iss-clips/{c}" for c in row[9].split(",") if c]
             # row[10] is merged_clip (newer logs); row[11] note. Older rows
             # written before merged clips have note at index 10.
@@ -1735,15 +1811,30 @@ def iss_events_payload(data_dir):
     return {"events": events}
 
 
-def iss_passes_payload(data_dir, limit=10):
+def iss_passes_payload(data_dir, limit=20, days=None):
     """Pass-level ISS events: one row per AOS window, with the transmission
     groups nested under it. Reads iss_passes.csv (written by iss_recorder.py
     at the end of each pass)."""
     passes = []
     ppath = os.path.join(data_dir, "iss_passes.csv")
+    cutoff = None
+    if days:
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
     for ln in reversed(tail_lines(ppath, 500)):
         row = next(csv.reader([ln]))
         if len(row) >= 11 and row[0].startswith("20"):
+            if cutoff is not None:
+                try:
+                    pass_dt = datetime.datetime.strptime(row[0], "%Y-%m-%dT%H:%M:%SZ")
+                    pass_dt = pass_dt.replace(tzinfo=datetime.timezone.utc)
+                except ValueError:
+                    try:
+                        pass_dt = datetime.datetime.strptime(row[0], "%Y-%m-%dT%H:%M:%S.%fZ")
+                        pass_dt = pass_dt.replace(tzinfo=datetime.timezone.utc)
+                    except ValueError:
+                        continue
+                if pass_dt < cutoff:
+                    continue
             clip_wav = row[10] if row[10] else ""
             clip_url = ""
             if clip_wav:
@@ -1816,13 +1907,34 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/live":
             self._send_json(live_payload(self.server.data_dir))
         elif route == "/api/pings":
-            self._send_json(pings_payload(self.server.data_dir))
+            qs = parse_qs(urlparse(self.path).query)
+            days = None
+            if qs.get("days"):
+                try:
+                    days = max(1, min(30, int(qs["days"][0])))
+                except ValueError:
+                    days = None
+            self._send_json(pings_payload(self.server.data_dir, days=days))
         elif route == "/api/iss-hits":
             self._send_json(iss_hits_payload(self.server.data_dir))
         elif route == "/api/iss-events":
-            self._send_json(iss_events_payload(self.server.data_dir))
+            qs = parse_qs(urlparse(self.path).query)
+            days = None
+            if qs.get("days"):
+                try:
+                    days = max(1, min(30, int(qs["days"][0])))
+                except ValueError:
+                    days = None
+            self._send_json(iss_events_payload(self.server.data_dir, days=days))
         elif route == "/api/iss-passes":
-            self._send_json(iss_passes_payload(self.server.data_dir))
+            qs = parse_qs(urlparse(self.path).query)
+            days = None
+            if qs.get("days"):
+                try:
+                    days = max(1, min(30, int(qs["days"][0])))
+                except ValueError:
+                    days = None
+            self._send_json(iss_passes_payload(self.server.data_dir, days=days))
         elif route.startswith("/iss-clips/"):
             # basename() strips any path components (traversal-proof); the
             # prefix/suffix check confines this to files iss_recorder.py
