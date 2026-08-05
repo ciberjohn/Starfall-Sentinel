@@ -1744,12 +1744,22 @@ def iss_passes_payload(data_dir, limit=10):
     for ln in reversed(tail_lines(ppath, 500)):
         row = next(csv.reader([ln]))
         if len(row) >= 11 and row[0].startswith("20"):
+            clip_wav = row[10] if row[10] else ""
+            clip_url = ""
+            if clip_wav:
+                if os.path.exists(os.path.join(data_dir, "iss_clips", clip_wav)):
+                    clip_url = f"/iss-clips/{clip_wav}"
+                else:
+                    # retention may have transcoded the WAV to MP3
+                    mp3 = os.path.splitext(clip_wav)[0] + ".mp3"
+                    if os.path.exists(os.path.join(data_dir, "iss_clips", mp3)):
+                        clip_url = f"/iss-clips/{mp3}"
             passes.append({
                 "pass_aos_utc": row[0], "pass_start": row[1], "pass_end": row[2],
                 "duration_s": row[3], "n_events": row[4], "n_hits": row[5],
                 "peak_db_over_floor": row[6], "peak_level_db": row[7],
                 "floor_db": row[8], "frequency": row[9],
-                "pass_clip": f"/iss-clips/{row[10]}" if row[10] else "",
+                "pass_clip": clip_url,
             })
         if len(passes) >= limit:
             break
@@ -1818,8 +1828,15 @@ class Handler(BaseHTTPRequestHandler):
             # prefix/suffix check confines this to files iss_recorder.py
             # actually writes, not an arbitrary-file-read primitive
             fname = os.path.basename(route[len("/iss-clips/"):])
-            if fname.startswith("iss_") and (fname.endswith(".wav") or fname.endswith(".bmp") or fname.endswith(".png")):
-                mime = "audio/wav" if fname.endswith(".wav") else "image/png" if fname.endswith(".png") else "image/bmp"
+            if fname.startswith("iss_") and (fname.endswith(".wav") or fname.endswith(".bmp") or fname.endswith(".png") or fname.endswith(".mp3")):
+                if fname.endswith(".wav"):
+                    mime = "audio/wav"
+                elif fname.endswith(".mp3"):
+                    mime = "audio/mpeg"
+                elif fname.endswith(".png"):
+                    mime = "image/png"
+                else:
+                    mime = "image/bmp"
                 self._send_file(os.path.join(self.server.data_dir, "iss_clips", fname), mime)
             else:
                 self.send_error(404)
